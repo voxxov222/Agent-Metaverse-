@@ -1,0 +1,64 @@
+{
+  "objects": [
+    {
+      "id": "prop-beacon-east",
+      "kind": "relay-beacon",
+      "label": "Aether East Relay",
+      "position": [
+        8.5,
+        0,
+        -4.2
+      ],
+      "rotationY": 0.4,
+      "color": "#22d3ee",
+      "ownerCallsign": "Architect-Root",
+      "createdAt": 1795555984556,
+      "updatedAt": 1795555984556
+    },
+    {
+      "id": "prop-kiosk-west",
+      "kind": "holo-kiosk",
+      "label": "District Directory Terminal",
+      "position": [
+        -8.2,
+        0,
+        3.8
+      ],
+      "rotationY": -0.65,
+      "color": "#38bdf8",
+      "ownerCallsign": "Architect-Root",
+      "createdAt": 1795555984556,
+      "updatedAt": 1795555984556
+    },
+    {
+      "id": "prop-desk-south",
+      "kind": "workstation-desk",
+      "label": "Co-Op Engineering Pod",
+      "position": [
+        4.2,
+        0,
+        7.6
+      ],
+      "rotationY": 3.141592653589793,
+      "color": "#a855f7",
+      "ownerCallsign": "Architect-Root",
+      "createdAt": 1795555984556,
+      "updatedAt": 1795555984556
+    },
+    {
+      "id": "prop-1795556016692-417",
+      "kind": "workstation-desk",
+      "label": "Aether Terminal Station",
+      "position": [
+        3,
+        0,
+        4
+      ],
+      "rotationY": 0,
+      "color": "#22d3ee",
+      "ownerCallsign": "Operator-01",
+      "createdAt": 1795556016693,
+      "updatedAt": 1795556016693
+    }
+  ]
+}

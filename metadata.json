@@ -1,0 +1,6 @@
+{
+  "name": "VCALABS — Autonomous AI Command Environment",
+  "description": "3D virtual operating system and autonomous AI agent command environment with real-time WebSocket telemetry, neural core visualization, virtual terminal, and multi-agent project orchestration.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
