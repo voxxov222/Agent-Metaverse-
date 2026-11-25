@@ -39,7 +39,7 @@ export interface SkyboxConfig {
 
 export type WeatherMode = 'clear' | 'rain' | 'ion-storm';
 
-export type CameraMode = 'orbit' | 'walk' | 'core-focus' | 'agent-focus';
+export type CameraMode = 'orbit' | 'walk' | 'core-focus' | 'agent-focus' | 'rig-focus';
 
 export type AutonomyLevel = 'ASSISTED' | 'SUPERVISED' | 'AUTONOMOUS';
 
@@ -56,7 +56,8 @@ export type WorkspacePanel =
   | 'memory'
   | 'security'
   | 'prototype'
-  | 'world';
+  | 'world'
+  | 'jarvis';
 
 export type NeuralRegionId =
   | 'reasoning-cortex'
@@ -307,7 +308,53 @@ export type WorldObjectMotion = 'static' | 'hover' | 'orbit' | 'patrol' | 'spin'
 
 export type ScreenMediaType = 'procedural' | 'image' | 'gif' | 'video';
 
-export type ScreenProceduralPreset = 'virtual-os' | 'matrix' | 'waveform' | 'radar' | 'neural-pulse';
+export type ScreenProceduralPreset =
+  | 'maya-os'
+  | 'jarvis-core'
+  | 'virtual-os'
+  | 'matrix'
+  | 'waveform'
+  | 'radar'
+  | 'neural-pulse';
+
+export type JarvisOrbState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'error';
+
+export type JarvisHologramModelId = 'neural-lattice' | 'methane' | 'stark-gear' | 'network-topology';
+
+export type JarvisDomainId =
+  | 'core'
+  | 'security'
+  | 'engineering'
+  | 'development'
+  | 'finance'
+  | 'science'
+  | 'business'
+  | 'medical';
+
+export interface JarvisHologramConfig {
+  model: JarvisHologramModelId;
+  title: string;
+  explodeFactor: number; // 0..1
+  heatmap: boolean;
+  customVertices?: Array<[number, number, number]>;
+  customConnections?: Array<[number, number]>;
+}
+
+export interface JarvisReminder {
+  id: string;
+  title: string;
+  dueAt: number;
+  createdAt: number;
+  fired: boolean;
+}
+
+export interface JarvisToast {
+  id: string;
+  title: string;
+  message: string;
+  severity: 'info' | 'success' | 'warning' | 'error';
+  createdAt: number;
+}
 
 export interface WorldObject {
   id: string;
@@ -364,6 +411,10 @@ export type ServerWsEvent =
   | { type: 'world:objects'; objects: WorldObject[] }
   | { type: 'world:skybox'; skybox: SkyboxConfig }
   | { type: 'world:chat'; message: WorldChatMessage }
+  | { type: 'jarvis:orb'; state: JarvisOrbState; label?: string }
+  | { type: 'jarvis:hologram'; hologram: JarvisHologramConfig }
+  | { type: 'jarvis:toast'; toast: JarvisToast }
+  | { type: 'jarvis:reminder'; reminder: JarvisReminder }
   | { type: 'halo:state'; snapshot: Record<string, unknown> }
   | {
       type: 'halo:cursor';

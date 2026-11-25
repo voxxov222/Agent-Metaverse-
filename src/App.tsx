@@ -9,6 +9,9 @@ import { TelemetryAnalyticsPanel } from './components/panels/TelemetryAnalyticsP
 import { IntegrationsGovernancePanel } from './components/panels/IntegrationsGovernancePanel';
 import { MemorySecurityPrototypePanel } from './components/panels/MemorySecurityPrototypePanel';
 import { WorldRoadmapPanel } from './components/panels/WorldRoadmapPanel';
+import { JarvisCommandDeck } from './components/panels/JarvisCommandDeck';
+import { JarvisOrbHud } from './components/JarvisOrbHud';
+import { MayaAdminWorkstation } from './components/workstation/MayaAdminWorkstation';
 import type { PrototypeKind } from './scene/environments';
 import {
   applyKernelPayloadToStore,
@@ -34,6 +37,9 @@ import {
 } from './utils/offlineStore';
 import { reconcileOfflineQueue } from './utils/orchestratorLogic';
 import { DEFAULT_SKYBOX_CONFIG, ENVIRONMENT_THEME_OPTIONS } from './utils/worldEnhancements';
+import { computeCognitiveFocusState } from './utils/jarvisOperationsLogic';
+import type { JarvisDomainLogEntry, JarvisStateSnapshot, NetworkTopologySnapshot } from './server/jarvisCommandEngine';
+import type { HostWorkstationMetrics } from './server/workstationMetrics';
 import type {
   ActivityLogEntry,
   AgentProfile,
@@ -42,6 +48,12 @@ import type {
   EnvironmentTheme,
   FinancialRequest,
   IntegrationProvider,
+  JarvisDomainId,
+  JarvisHologramConfig,
+  JarvisHologramModelId,
+  JarvisOrbState,
+  JarvisReminder,
+  JarvisToast,
   MemoryItem,
   NeuralRegion,
   NeuralRegionId,
@@ -91,6 +103,7 @@ export default function App() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedRegionId, setSelectedRegionId] = useState<NeuralRegionId>('reasoning-cortex');
   const [activePanel, setActivePanel] = useState<WorkspacePanel>(null);
+  const [workstationOpen, setWorkstationOpen] = useState(false);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [latestPulse, setLatestPulse] = useState<PulseSignal | null>(null);
@@ -127,6 +140,35 @@ export default function App() {
     objectId?: string;
     nonce: number;
   } | null>(null);
+
+  // JARVIS Central Command State
+  const [jarvisOrbState, setJarvisOrbState] = useState<JarvisOrbState>('idle');
+  const [jarvisOrbLabel, setJarvisOrbLabel] = useState('IDLE // READY');
+  const [jarvisHologram, setJarvisHologram] = useState<JarvisHologramConfig>({
+    model: 'neural-lattice',
+    title: 'Central Neural Lattice',
+    explodeFactor: 0,
+    heatmap: false,
+  });
+  const [jarvisReminders, setJarvisReminders] = useState<JarvisReminder[]>([]);
+  const [jarvisToasts, setJarvisToasts] = useState<JarvisToast[]>([]);
+  const [jarvisTopology, setJarvisTopology] = useState<NetworkTopologySnapshot | null>(null);
+  const [jarvisDiagnostics, setJarvisDiagnostics] = useState<{
+    metrics: HostWorkstationMetrics;
+    summary: string;
+    activeAgents: number;
+    runningTasks: number;
+  } | null>(null);
+  const [jarvisLog, setJarvisLog] = useState<JarvisDomainLogEntry[]>([]);
+  const keyTimestampsRef = useRef<number[]>([]);
+  const lastPointerActiveRef = useRef<number>(Date.now());
+  const [biometricsTick, setBiometricsTick] = useState(0);
+
+  const jarvisBiometrics = useMemo(
+    () => computeCognitiveFocusState(keyTimestampsRef.current, lastPointerActiveRef.current),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [biometricsTick],
+  );
 
   const isOffline = browserOffline || simulatedOffline;
   const appliedOfflineIdsRef = useRef<Set<string>>(new Set());
@@ -200,6 +242,23 @@ export default function App() {
         if (Array.isArray(data.roadmap)) setRoadmap(data.roadmap);
         if (data.worldSkybox) setSkybox(data.worldSkybox);
 
+        // Hydrate JARVIS Command Engine state
+        try {
+          const jRes = await fetch('/api/jarvis/state');
+          if (jRes.ok && active) {
+            const jData = (await jRes.json()) as JarvisStateSnapshot;
+            setJarvisOrbState(jData.orbState);
+            setJarvisOrbLabel(jData.orbLabel);
+            setJarvisHologram(jData.hologram);
+            setJarvisReminders(jData.reminders);
+            setJarvisTopology(jData.networkTopology);
+            setJarvisDiagnostics(jData.latestDiagnostics);
+            setJarvisLog(jData.domainLog);
+          }
+        } catch {
+          // ignore if offline
+        }
+
         applyKernelPayloadToStore({
           kernel: data.kernel,
           agents: data.agents,
@@ -271,7 +330,22 @@ export default function App() {
         setDockCollapsed((prev) => !prev);
       }
     };
+    const trackKeystroke = () => {
+      const now = Date.now();
+      keyTimestampsRef.current.push(now);
+      if (keyTimestampsRef.current.length > 320) {
+        keyTimestampsRef.current = keyTimestampsRef.current.slice(-240);
+      }
+      lastPointerActiveRef.current = now;
+      setBiometricsTick((t) => t + 1);
+    };
+    const trackPointer = () => {
+      lastPointerActiveRef.current = Date.now();
+    };
     window.addEventListener('keydown', onKey);
+    window.addEventListener('keydown', trackKeystroke);
+    window.addEventListener('pointerdown', trackPointer);
+    const bioTimer = window.setInterval(() => setBiometricsTick((t) => t + 1), 15000);
     const detachHaloKeys = attachHaloKeyboardAdapter({
       onTogglePalette: () => haloStore.setState((prev) => ({ ...prev, paletteOpen: !prev.paletteOpen })),
       onToggleWrist: () => haloStore.setState((prev) => ({ ...prev, wristOpen: !prev.wristOpen })),
@@ -288,6 +362,9 @@ export default function App() {
     });
     return () => {
       window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keydown', trackKeystroke);
+      window.removeEventListener('pointerdown', trackPointer);
+      clearInterval(bioTimer);
       detachHaloKeys();
       stopGamepad();
     };
@@ -437,6 +514,21 @@ export default function App() {
                 activeModule: event.cursor.activeModule as any,
               }),
             }));
+          } else if (event.type === 'jarvis:orb') {
+            setJarvisOrbState(event.state);
+            setJarvisOrbLabel(event.label || event.state.toUpperCase());
+          } else if (event.type === 'jarvis:hologram') {
+            setJarvisHologram(event.hologram);
+          } else if (event.type === 'jarvis:toast') {
+            setJarvisToasts((prev) => [event.toast, ...prev.filter((t) => t.id !== event.toast.id)].slice(0, 6));
+          } else if (event.type === 'jarvis:reminder') {
+            setJarvisReminders((prev) => {
+              const idx = prev.findIndex((r) => r.id === event.reminder.id);
+              if (idx === -1) return [event.reminder, ...prev];
+              const copy = [...prev];
+              copy[idx] = event.reminder;
+              return copy;
+            });
           }
         } catch {
           // ignore malformed WS frames
@@ -769,7 +861,67 @@ export default function App() {
     }
   }
 
+  function applyJarvisStateSnapshot(snapshot: JarvisStateSnapshot) {
+    setJarvisOrbState(snapshot.orbState);
+    setJarvisOrbLabel(snapshot.orbLabel);
+    setJarvisHologram(snapshot.hologram);
+    setJarvisReminders(snapshot.reminders);
+    setJarvisTopology(snapshot.networkTopology);
+    setJarvisDiagnostics(snapshot.latestDiagnostics);
+    setJarvisLog(snapshot.domainLog);
+  }
+
+  async function handleJarvisDispatch(prompt: string, domain: JarvisDomainId) {
+    const res = await fetch('/api/jarvis/dispatch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, domain }),
+    });
+    const data = await res.json();
+    if (res.ok && data.state) {
+      applyJarvisStateSnapshot(data.state);
+    }
+  }
+
+  async function handleJarvisHologram(patch: {
+    model?: JarvisHologramModelId;
+    explodeFactor?: number;
+    heatmap?: boolean;
+    scanSubnet?: boolean;
+  }) {
+    const res = await fetch('/api/jarvis/hologram', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const data = await res.json();
+    if (res.ok && data.state) {
+      applyJarvisStateSnapshot(data.state);
+    }
+  }
+
+  async function handleJarvisCreateReminder(title: string, when: string) {
+    const res = await fetch('/api/jarvis/reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, when }),
+    });
+    const data = await res.json();
+    if (res.ok && data.state) {
+      applyJarvisStateSnapshot(data.state);
+    }
+  }
+
+  async function handleJarvisDeleteReminder(id: string) {
+    const res = await fetch(`/api/jarvis/reminders/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok && data.state) {
+      applyJarvisStateSnapshot(data.state);
+    }
+  }
+
   const panelTitleMap: Record<Exclude<WorkspacePanel, null>, string> = {
+    jarvis: 'J.A.R.V.I.S // Central Command Operations',
     'neural-link': 'Neural Link & Live Mesh Telemetry',
     agents: 'Autonomous Agent Society & 3D Studio',
     projects: 'Autonomous Project Orchestrator',
@@ -820,6 +972,9 @@ export default function App() {
           setActivePanel('neural-link');
         }}
         onSelectWorldObject={(id) => {
+          if (id === 'prop-rig-west' && selectedWorldObjectId === 'prop-rig-west') {
+            setWorkstationOpen(true);
+          }
           setSelectedWorldObjectId(id);
         }}
         onMoveWorldObject={(id, position, rotationY) => {
@@ -865,6 +1020,7 @@ export default function App() {
         haloGlitchPulseAt={haloGlitchPulseAt}
         pendingApprovalsCount={pendingApprovalsCount}
         runningTasksCount={runningTasksCount}
+        jarvisHologram={jarvisHologram}
         onClickHaloPanel={(moduleId) => {
           haloStore.setState({ isOpen: true, activeModule: moduleId, glitchPulseAt: Date.now() });
         }}
@@ -885,10 +1041,11 @@ export default function App() {
           VCALABS
         </button>
 
-        {/* Zone 2: 5 concise single-line module links */}
+        {/* Zone 2: 6 concise single-line module links */}
         <nav aria-label="Operating System Modules" className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
           {(
             [
+              ['jarvis', 'JARVIS'],
               ['neural-link', 'Neural Link'],
               ['agents', 'Agents'],
               ['projects', 'Projects'],
@@ -937,6 +1094,7 @@ export default function App() {
       <div className="fixed top-14 inset-x-0 z-20 flex md:hidden items-center gap-2 px-3 py-1.5 bg-[#0A0F1A]/92 border-b border-slate-800 overflow-x-auto">
         {(
           [
+            ['jarvis', 'JARVIS'],
             ['neural-link', 'Neural Link'],
             ['agents', 'Agents'],
             ['projects', 'Projects'],
@@ -981,6 +1139,29 @@ export default function App() {
           </div>
 
           <div className="flex-1 min-h-0 p-4">
+            {activePanel === 'jarvis' && (
+              <JarvisCommandDeck
+                orbState={jarvisOrbState}
+                orbLabel={jarvisOrbLabel}
+                hologram={jarvisHologram}
+                reminders={jarvisReminders}
+                networkTopology={jarvisTopology}
+                latestDiagnostics={jarvisDiagnostics}
+                domainLog={jarvisLog}
+                biometrics={jarvisBiometrics}
+                isOffline={isOffline}
+                onDispatch={handleJarvisDispatch}
+                onUpdateHologram={handleJarvisHologram}
+                onCreateReminder={handleJarvisCreateReminder}
+                onDeleteReminder={handleJarvisDeleteReminder}
+                onSetOrbState={(st, lbl) => {
+                  setJarvisOrbState(st);
+                  if (lbl) setJarvisOrbLabel(lbl);
+                }}
+                onFocusCoreIn3D={() => setCameraMode('core-focus')}
+              />
+            )}
+
             {activePanel === 'neural-link' && (
               <NeuralLinkPanel
                 regions={regions}
@@ -1223,6 +1404,15 @@ export default function App() {
               · Hold & drag to move
             </span>
           )}
+          {selectedWorldObjectId === 'prop-rig-west' && (
+            <button
+              type="button"
+              onClick={() => setWorkstationOpen(true)}
+              className="px-2 py-0.5 rounded bg-[#00c8ff] text-slate-950 font-semibold hover:bg-cyan-300 cursor-pointer"
+            >
+              Open MAYA PC
+            </button>
+          )}
           {selectedWorldObjectId && (
             <button
               type="button"
@@ -1334,6 +1524,17 @@ export default function App() {
 
             {/* Quick OS Modules & Offline / Motion Toggles */}
             <div className="flex flex-wrap xl:flex-nowrap items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setWorkstationOpen((prev) => !prev)}
+                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap font-semibold cursor-pointer ${
+                  workstationOpen
+                    ? 'bg-[#00c8ff] border-[#00ffff] text-slate-950'
+                    : 'bg-[#003264]/50 border-[#00c8ff]/60 text-[#00e5ff] hover:border-[#00ffff]'
+                }`}
+              >
+                Admin PC
+              </button>
               {(
                 [
                   ['telemetry', 'Telemetry'],
@@ -1347,7 +1548,7 @@ export default function App() {
                   key={p}
                   type="button"
                   onClick={() => setActivePanel((prev) => (prev === p ? null : p))}
-                  className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                  className={`px-1.5 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
                     activePanel === p
                       ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
                       : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
@@ -1431,6 +1632,59 @@ export default function App() {
         )}
       </div>
       )}
+
+      {/* Admin Main Computer Personal Maya Workstation (Local Host Only) */}
+      <MayaAdminWorkstation
+        open={workstationOpen}
+        onClose={() => setWorkstationOpen(false)}
+        agents={agents}
+        projects={projects}
+        regions={regions}
+        telemetry={telemetry}
+        activityLogs={activityLogs}
+        memories={memories}
+        commDrafts={commDrafts}
+        financialRequests={financialRequests}
+        vaultClaimed={vaultClaimed}
+        sessionRole={sessionRole}
+        isOffline={isOffline}
+        reducedMotion={reducedMotion}
+        onUnlockVault={handleUnlockVault}
+        onSendCentralCommand={handleSendCentralCommand}
+        onChatWithAgent={handleChatWithAgent}
+        onUpdateAgent={handleUpdateAgent}
+        onCreateProject={handleCreateProject}
+        onApproveTask={handleApproveProjectTask}
+        onDecideComm={handleDecideComm}
+        onDecideFinance={handleDecideFinance}
+        onFocusAgentIn3D={(agentId) => {
+          setSelectedAgentId(agentId);
+          setCameraMode('agent-focus');
+        }}
+        onFocusRegionIn3D={(regionId) => {
+          setSelectedRegionId(regionId);
+          setCameraMode('core-focus');
+        }}
+        onFocusAdminRigIn3D={() => {
+          setSelectedWorldObjectId('prop-rig-west');
+          setCameraMode('rig-focus');
+        }}
+      />
+
+      {/* Floating 5-State JARVIS Orb & Stark HUD Notifications */}
+      <JarvisOrbHud
+        orbState={jarvisOrbState}
+        orbLabel={jarvisOrbLabel}
+        deckOpen={activePanel === 'jarvis'}
+        hiddenByFullHud={haloIsOpen && (haloFormFactor === 'flat' || haloFormFactor === 'shared')}
+        drawerOpen={Boolean(activePanel)}
+        toasts={jarvisToasts}
+        onToggleDeck={() => {
+          haloStore.setState({ isOpen: false });
+          setActivePanel((prev) => (prev === 'jarvis' ? null : 'jarvis'));
+        }}
+        onDismissToast={(id) => setJarvisToasts((prev) => prev.filter((t) => t.id !== id))}
+      />
 
       {/* HALO Holographic Command HUD, Wrist HUD & Command Palette */}
       <HaloShell

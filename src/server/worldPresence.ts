@@ -85,15 +85,15 @@ function defaultStarterObjects(): WorldObject[] {
     {
       id: 'prop-holo-wall-north',
       kind: 'media-screen',
-      label: 'Orbital Telemetry Display',
+      label: 'JARVIS Command Telemetry',
       position: [-5.8, 0, -6.5],
       rotationY: 0.45,
-      color: '#22d3ee',
+      color: '#00d2ff',
       ownerCallsign: 'Architect-Root',
       motion: 'static',
       scale: 1,
       mediaType: 'procedural',
-      screenPreset: 'waveform',
+      screenPreset: 'jarvis-core',
       createdAt: now,
       updatedAt: now,
     },
@@ -113,15 +113,15 @@ function defaultStarterObjects(): WorldObject[] {
     {
       id: 'prop-rig-west',
       kind: 'quantum-workstation',
-      label: 'Operator Triple-Screen Rig',
+      label: 'Admin Main Computer (MAYA)',
       position: [-4.8, 0, 5.2],
       rotationY: 0.55,
       color: '#22d3ee',
-      ownerCallsign: 'Architect-Root',
+      ownerCallsign: 'Admin-Local',
       motion: 'static',
       scale: 1,
       mediaType: 'procedural',
-      screenPreset: 'virtual-os',
+      screenPreset: 'maya-os',
       createdAt: now,
       updatedAt: now,
     },
@@ -207,7 +207,14 @@ export class WorldPresenceStore {
           this.skybox = sanitizeSkyboxConfig(parsed.skybox);
         }
         if (Array.isArray(parsed.objects) && parsed.objects.length > 0) {
-          this.objects = parsed.objects;
+          this.objects = parsed.objects.map((o) =>
+            o.id === 'prop-holo-wall-north' &&
+            o.label === 'Orbital Telemetry Display' &&
+            o.screenPreset === 'waveform' &&
+            !o.mediaUrl
+              ? { ...o, label: 'JARVIS Command Telemetry', color: '#00d2ff', screenPreset: 'jarvis-core' }
+              : o,
+          );
           return;
         }
       }

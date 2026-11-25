@@ -233,6 +233,8 @@ export const ALLOWED_PROP_KINDS = new Set<WorldPropKind>([
 export const ALLOWED_MOTIONS = new Set<WorldObjectMotion>(['static', 'hover', 'orbit', 'patrol', 'spin']);
 export const ALLOWED_MEDIA_TYPES = new Set<ScreenMediaType>(['procedural', 'image', 'gif', 'video']);
 export const ALLOWED_SCREEN_PRESETS = new Set<ScreenProceduralPreset>([
+  'maya-os',
+  'jarvis-core',
   'virtual-os',
   'matrix',
   'waveform',

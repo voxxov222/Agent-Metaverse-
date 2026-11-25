@@ -1,10 +1,16 @@
 import * as THREE from 'three';
-import type { NeuralRegion, NeuralRegionId } from '../types/os';
+import type { JarvisHologramConfig, NeuralRegion, NeuralRegionId } from '../types/os';
+import {
+  generateMethaneWireframe,
+  generateNeuralLatticeWireframe,
+  generateStarkGearWireframe,
+} from '../utils/jarvisOperationsLogic';
 
 export interface NeuralCoreHandle {
   group: THREE.Group;
   interactables: THREE.Object3D[];
   triggerPulse: (regionId: NeuralRegionId, fromPos?: THREE.Vector3, colorHex?: string) => void;
+  setHologramState: (config: JarvisHologramConfig) => void;
   update: (elapsed: number, delta: number, regions: NeuralRegion[]) => void;
   dispose: () => void;
 }
@@ -839,12 +845,145 @@ export function buildNeuralCore(isSoftwareGl: boolean, maxAnisotropy = 4): Neura
   }
   disposables.push(pulseGeo);
 
+  // 10. JARVIS 3D Hologram Wireframe Projector (Methane / Stark Gear / Subnet Topology / Explode + Thermal Heatmap)
+  const holoGroup = new THREE.Group();
+  holoGroup.position.set(0, 1.52, 0);
+  holoGroup.visible = false;
+  group.add(holoGroup);
+
+  const holoLineMat = new THREE.LineBasicMaterial({
+    color: 0x00d2ff,
+    transparent: true,
+    opacity: 0.96,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const holoNodeGeo = new THREE.SphereGeometry(0.068, 10, 10);
+  const holoNodeMat = new THREE.MeshBasicMaterial({
+    color: 0x64ffda,
+    transparent: true,
+    opacity: 0.95,
+    blending: THREE.AdditiveBlending,
+  });
+  disposables.push(holoLineMat, holoNodeGeo, holoNodeMat);
+
+  let holoState: JarvisHologramConfig = {
+    model: 'neural-lattice',
+    title: 'Central Neural Lattice',
+    explodeFactor: 0,
+    heatmap: false,
+  };
+  let holoBaseVerts: Array<[number, number, number]> = [];
+  let holoConnections: Array<[number, number]> = [];
+  let holoLineGeo: THREE.BufferGeometry | null = null;
+  let holoLineMesh: THREE.LineSegments | null = null;
+  let holoNodesMesh: THREE.InstancedMesh | null = null;
+  let holoPosAttr: Float32Array | null = null;
+  let holoTargetExplode = 0;
+  let holoCurrentExplode = 0;
+
+  function rebuildHoloGeometry(cfg: JarvisHologramConfig) {
+    if (holoLineMesh) {
+      holoGroup.remove(holoLineMesh);
+      holoLineMesh = null;
+    }
+    if (holoLineGeo) {
+      holoLineGeo.dispose();
+      holoLineGeo = null;
+    }
+    if (holoNodesMesh) {
+      holoGroup.remove(holoNodesMesh);
+      holoNodesMesh.dispose();
+      holoNodesMesh = null;
+    }
+
+    if (cfg.customVertices && cfg.customConnections && cfg.customVertices.length > 0) {
+      holoBaseVerts = cfg.customVertices;
+      holoConnections = cfg.customConnections;
+    } else if (cfg.model === 'methane') {
+      const m = generateMethaneWireframe();
+      holoBaseVerts = m.vertices;
+      holoConnections = m.connections;
+    } else if (cfg.model === 'stark-gear') {
+      const g = generateStarkGearWireframe(12);
+      holoBaseVerts = g.vertices;
+      holoConnections = g.connections;
+    } else {
+      const n = generateNeuralLatticeWireframe();
+      holoBaseVerts = n.vertices;
+      holoConnections = n.connections;
+    }
+
+    const segFloats = new Float32Array(Math.max(1, holoConnections.length) * 6);
+    holoPosAttr = segFloats;
+    holoLineGeo = new THREE.BufferGeometry();
+    holoLineGeo.setAttribute('position', new THREE.BufferAttribute(segFloats, 3));
+    holoLineMesh = new THREE.LineSegments(holoLineGeo, holoLineMat);
+    holoGroup.add(holoLineMesh);
+
+    const vCount = Math.max(1, holoBaseVerts.length);
+    holoNodesMesh = new THREE.InstancedMesh(holoNodeGeo, holoNodeMat, vCount);
+    holoNodesMesh.frustumCulled = false;
+    holoGroup.add(holoNodesMesh);
+  }
+
+  function applyHoloDeformation(explode: number, heatmap: boolean) {
+    holoGroup.visible = holoState.model !== 'neural-lattice' || explode > 0.015 || heatmap;
+    if (!holoGroup.visible || !holoPosAttr || !holoLineGeo || !holoNodesMesh) return;
+
+    const expScale = 1 + explode * 1.15;
+    holoLineMat.color.set(heatmap ? '#ff8c32' : '#00d2ff');
+    holoNodeMat.color.set(heatmap ? '#f43f5e' : '#64ffda');
+
+    for (let i = 0; i < holoBaseVerts.length; i++) {
+      const v = holoBaseVerts[i];
+      const vx = v[0] * expScale * 1.65;
+      const vy = v[1] * expScale * 1.65;
+      const vz = v[2] * expScale * 1.65;
+      _dummy.position.set(vx, vy, vz);
+      _dummy.rotation.set(0, 0, 0);
+      _dummy.scale.setScalar(i === 0 ? 1.35 : 0.95);
+      _dummy.updateMatrix();
+      holoNodesMesh.setMatrixAt(i, _dummy.matrix);
+    }
+    holoNodesMesh.instanceMatrix.needsUpdate = true;
+
+    for (let c = 0; c < holoConnections.length; c++) {
+      const [aIdx, bIdx] = holoConnections[c];
+      const va = holoBaseVerts[aIdx] ?? holoBaseVerts[0];
+      const vb = holoBaseVerts[bIdx] ?? holoBaseVerts[0];
+      const base = c * 6;
+      holoPosAttr[base] = va[0] * expScale * 1.65;
+      holoPosAttr[base + 1] = va[1] * expScale * 1.65;
+      holoPosAttr[base + 2] = va[2] * expScale * 1.65;
+      holoPosAttr[base + 3] = vb[0] * expScale * 1.65;
+      holoPosAttr[base + 4] = vb[1] * expScale * 1.65;
+      holoPosAttr[base + 5] = vb[2] * expScale * 1.65;
+    }
+    const attr = holoLineGeo.getAttribute('position') as THREE.BufferAttribute;
+    attr.needsUpdate = true;
+    holoLineGeo.computeBoundingSphere();
+  }
+
   let activityBoost = 0.25;
   let shockProgress = 1.0;
 
   return {
     group,
     interactables,
+    setHologramState: (cfg) => {
+      const topologyChanged =
+        cfg.model !== holoState.model ||
+        Boolean(cfg.customVertices && cfg.customVertices.length !== holoBaseVerts.length) ||
+        Boolean(cfg.customConnections && cfg.customConnections.length !== holoConnections.length) ||
+        !holoLineGeo;
+      holoState = cfg;
+      holoTargetExplode = Math.max(0, Math.min(1, cfg.explodeFactor ?? 0));
+      if (topologyChanged) {
+        rebuildHoloGeometry(cfg);
+      }
+      applyHoloDeformation(holoCurrentExplode, Boolean(cfg.heatmap));
+    },
     triggerPulse: (regionId, fromWorldPos, colorHex) => {
       activityBoost = Math.min(1.0, activityBoost + 0.55);
       shockProgress = 0;
@@ -885,6 +1024,16 @@ export function buildNeuralCore(isSoftwareGl: boolean, maxAnisotropy = 4): Neura
       moteMat.uniforms.uTime.value = elapsed;
       moteMat.uniforms.uActivity.value = totalAct;
       beamMat.opacity = 0.22 + totalAct * 0.28;
+
+      // Smooth JARVIS hologram explode transition & rotation
+      if (Math.abs(holoCurrentExplode - holoTargetExplode) > 0.002) {
+        holoCurrentExplode += (holoTargetExplode - holoCurrentExplode) * Math.min(1, delta * 8);
+        applyHoloDeformation(holoCurrentExplode, Boolean(holoState.heatmap));
+      }
+      if (holoGroup.visible) {
+        holoGroup.rotation.y += delta * 0.48;
+        holoGroup.rotation.x = Math.sin(elapsed * 0.55) * 0.16;
+      }
 
       // Core & shells kinetic rotations
       coreMesh.rotation.y += delta * (0.32 + totalAct * 0.45);
@@ -989,6 +1138,8 @@ export function buildNeuralCore(isSoftwareGl: boolean, maxAnisotropy = 4): Neura
       }
     },
     dispose: () => {
+      if (holoLineGeo) holoLineGeo.dispose();
+      if (holoNodesMesh) holoNodesMesh.dispose();
       disposables.forEach((d) => d.dispose());
     },
   };

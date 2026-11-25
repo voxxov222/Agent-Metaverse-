@@ -1,0 +1,201 @@
+{
+  "objects": [
+    {
+      "id": "prop-beacon-east",
+      "kind": "relay-beacon",
+      "label": "Aether East Relay",
+      "position": [
+        9.5,
+        0.42,
+        -7.5
+      ],
+      "rotationY": 0.4,
+      "color": "#22d3ee",
+      "ownerCallsign": "Architect-Root",
+      "motion": "hover",
+      "scale": 1,
+      "createdAt": 1795618956692,
+      "updatedAt": 1795623680678
+    },
+    {
+      "id": "prop-kiosk-west",
+      "kind": "holo-kiosk",
+      "label": "District Directory Terminal",
+      "position": [
+        -8.2,
+        0,
+        3.8
+      ],
+      "rotationY": -0.65,
+      "color": "#38bdf8",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "mediaType": "procedural",
+      "screenPreset": "radar",
+      "createdAt": 1795618956692,
+      "updatedAt": 1795618956692
+    },
+    {
+      "id": "prop-desk-south",
+      "kind": "workstation-desk",
+      "label": "Co-Op Engineering Pod",
+      "position": [
+        4.2,
+        0,
+        7.6
+      ],
+      "rotationY": 3.141592653589793,
+      "color": "#a855f7",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "mediaType": "procedural",
+      "screenPreset": "matrix",
+      "createdAt": 1795618956692,
+      "updatedAt": 1795618956692
+    },
+    {
+      "id": "prop-holo-wall-north",
+      "kind": "media-screen",
+      "label": "Orbital Telemetry Display",
+      "position": [
+        -5.8,
+        0,
+        -6.5
+      ],
+      "rotationY": 0.45,
+      "color": "#22d3ee",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "mediaType": "procedural",
+      "screenPreset": "waveform",
+      "createdAt": 1795618956692,
+      "updatedAt": 1795618956692
+    },
+    {
+      "id": "prop-crate-stack-1",
+      "kind": "quantum-crate",
+      "label": "Quantum Storage Node A",
+      "position": [
+        4.2,
+        0.82,
+        7.61
+      ],
+      "rotationY": 0.25,
+      "color": "#38bdf8",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "createdAt": 1795618956692,
+      "updatedAt": 1795623786712
+    },
+    {
+      "id": "prop-rig-west",
+      "kind": "quantum-workstation",
+      "label": "Admin Main Computer (MAYA)",
+      "position": [
+        -0.5,
+        0,
+        6
+      ],
+      "rotationY": 0.55,
+      "color": "#22d3ee",
+      "ownerCallsign": "Admin-Local",
+      "motion": "static",
+      "scale": 1,
+      "mediaType": "procedural",
+      "screenPreset": "maya-os",
+      "createdAt": 1795618956692,
+      "updatedAt": 1795623618219
+    },
+    {
+      "id": "prop-holotable-east",
+      "kind": "holo-terrain-table",
+      "label": "Tactical Holo-Terrain Matrix",
+      "position": [
+        12.46,
+        0,
+        -4.96
+      ],
+      "rotationY": -0.369,
+      "color": "#38bdf8",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "createdAt": 1795618956692,
+      "updatedAt": 1795623681309
+    },
+    {
+      "id": "prop-mainframe-nw",
+      "kind": "mainframe-rack",
+      "label": "Aether Blade Supercomputer",
+      "position": [
+        -8.5,
+        0,
+        -2
+      ],
+      "rotationY": 0.9,
+      "color": "#a855f7",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "createdAt": 1795618956692,
+      "updatedAt": 1795623609870
+    },
+    {
+      "id": "prop-hud-ne",
+      "kind": "holo-hud-terminal",
+      "label": "Planetary Lock Holo-HUD",
+      "position": [
+        7.8,
+        0,
+        -1.2
+      ],
+      "rotationY": -0.95,
+      "color": "#22d3ee",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "mediaType": "procedural",
+      "screenPreset": "virtual-os",
+      "createdAt": 1795618956692,
+      "updatedAt": 1795618956692
+    },
+    {
+      "id": "prop-arch-north",
+      "kind": "arch-portal",
+      "label": "North Sector Command Arch",
+      "position": [
+        0,
+        0,
+        -10.5
+      ],
+      "rotationY": 0,
+      "color": "#38bdf8",
+      "ownerCallsign": "Architect-Root",
+      "motion": "static",
+      "scale": 1,
+      "createdAt": 1795618956692,
+      "updatedAt": 1795618956692
+    }
+  ],
+  "skybox": {
+    "enabled": false,
+    "preset": "theme-auto",
+    "zenithColor": "#040a1a",
+    "horizonColor": "#123052",
+    "nadirColor": "#050811",
+    "sunColor": "#67e8f9",
+    "sunElevation": 11,
+    "sunAzimuth": 215,
+    "sunSize": 1,
+    "starDensity": 0.55,
+    "auroraIntensity": 0.42,
+    "cloudCoverage": 0.36,
+    "nebulaHue": 0.54,
+    "envIntensity": 1.05,
+    "exposure": 1.12
+  }
+}

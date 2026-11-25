@@ -519,6 +519,8 @@ export function WorldRoadmapPanel({
                     }
                     className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-slate-100"
                   >
+                    <option value="maya-os">MAYA Admin OS</option>
+                    <option value="jarvis-core">JARVIS Arc Core</option>
                     <option value="virtual-os">Virtual OS Desktop</option>
                     <option value="waveform">Live FFT Waveform</option>
                     <option value="matrix">Holo Telemetry Matrix</option>
@@ -655,6 +657,8 @@ export function WorldRoadmapPanel({
                   onChange={(e) => setPropScreenPreset(e.target.value as ScreenProceduralPreset)}
                   className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-slate-100"
                 >
+                  <option value="maya-os">MAYA Admin OS</option>
+                  <option value="jarvis-core">JARVIS Arc Core</option>
                   <option value="virtual-os">Virtual OS Desktop</option>
                   <option value="waveform">Waveform Spectrum</option>
                   <option value="matrix">Holo Matrix</option>

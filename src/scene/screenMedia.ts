@@ -219,7 +219,172 @@ export class AnimatedScreenManager {
       ctx.stroke();
     }
 
-    if (preset === 'virtual-os') {
+    if (preset === 'maya-os') {
+      // Maya AI HUD rendered live onto Admin's 3D Main Computer screen
+      ctx.fillStyle = '#05050a';
+      ctx.fillRect(0, 0, w, h);
+
+      // Sweeping cyan aura & glowing frame
+      const sweep = ctx.createLinearGradient(0, 0, w, h);
+      sweep.addColorStop(0, 'rgba(0, 90, 150, 0.22)');
+      sweep.addColorStop(0.5, 'rgba(0, 170, 220, 0.14)');
+      sweep.addColorStop(1, 'rgba(10, 20, 50, 0.22)');
+      ctx.fillStyle = sweep;
+      ctx.fillRect(0, 0, w, h);
+
+      ctx.strokeStyle = '#00c8ff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(4, 4, w - 8, h - 8);
+
+      // Left Panel: SYSTEM METRICS
+      ctx.fillStyle = 'rgba(10, 14, 34, 0.86)';
+      ctx.fillRect(12, 12, 118, h - 24);
+      ctx.strokeStyle = 'rgba(0, 180, 255, 0.55)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(12, 12, 118, h - 24);
+      ctx.fillStyle = '#00c8ff';
+      ctx.font = 'bold 9px monospace';
+      ctx.fillText('SYSTEM METRICS', 20, 28);
+
+      const sysItems = [
+        { k: 'CPU', v: 18 + Math.round(Math.sin(t * 1.4) * 7), u: '%', c: '#00ff64' },
+        { k: 'RAM', v: 64 + Math.round(Math.cos(t * 0.7) * 4), u: '%', c: '#ffc800' },
+        { k: 'TEMP', v: 46 + Math.round(Math.sin(t * 0.9) * 3), u: 'C', c: '#00ff64' },
+        { k: 'GPU', v: 24 + Math.round(Math.sin(t * 2.1) * 14), u: '%', c: '#00ff64' },
+        { k: 'DISK', v: 56, u: '%', c: '#ffc800' },
+      ];
+      sysItems.forEach((m, idx) => {
+        const y0 = 44 + idx * 44;
+        ctx.fillStyle = '#96c8ff';
+        ctx.font = '8px monospace';
+        ctx.fillText(m.k, 20, y0);
+        ctx.fillStyle = m.c;
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText(`${m.v}${m.u}`, 20, y0 + 16);
+        ctx.fillStyle = '#141428';
+        ctx.fillRect(20, y0 + 22, 100, 4);
+        ctx.fillStyle = m.c;
+        ctx.fillRect(20, y0 + 22, Math.max(4, Math.min(100, m.v)), 4);
+      });
+
+      // Center MAYA Plasma Orb & Waveform
+      const cx = w * 0.5;
+      const cy = h * 0.44;
+      const pulseR = 54 + Math.sin(t * 3.1) * 6;
+      const orbGlow = ctx.createRadialGradient(cx, cy, 8, cx, cy, pulseR * 1.35);
+      orbGlow.addColorStop(0, 'rgba(130, 180, 255, 0.95)');
+      orbGlow.addColorStop(0.4, 'rgba(80, 120, 255, 0.55)');
+      orbGlow.addColorStop(0.75, 'rgba(0, 210, 255, 0.25)');
+      orbGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = orbGlow;
+      ctx.beginPath();
+      ctx.arc(cx, cy, pulseR * 1.35, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = 'rgba(180, 240, 255, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, pulseR * 0.95, pulseR * 0.72, t * 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, pulseR * 0.72, pulseR * 0.98, -t * 0.8, 0, Math.PI * 2);
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('MAYA', cx, cy + 5);
+      ctx.textAlign = 'left';
+
+      // Bottom Mic Wave
+      ctx.strokeStyle = '#67e8f9';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let x = 142; x <= 370; x += 6) {
+        const edge = Math.sin(((x - 142) / 228) * Math.PI);
+        const wy = h - 22 - Math.abs(Math.sin(x * 0.08 + t * 5.2)) * 18 * edge;
+        if (x === 142) ctx.moveTo(x, wy);
+        else ctx.lineTo(x, wy);
+      }
+      ctx.stroke();
+
+      // Right Panel: AI STATUS
+      ctx.fillStyle = 'rgba(10, 14, 34, 0.86)';
+      ctx.fillRect(w - 130, 12, 118, h - 24);
+      ctx.strokeStyle = 'rgba(0, 255, 136, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(w - 130, 12, 118, h - 24);
+      ctx.fillStyle = '#00ff88';
+      ctx.font = 'bold 9px monospace';
+      ctx.fillText('AI STATUS', w - 102, 28);
+      ctx.strokeStyle = '#00ffff';
+      ctx.strokeRect(w - 122, 42, 102, 28);
+      ctx.fillStyle = '#00ffff';
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(new Date().toTimeString().slice(0, 8), w - 106, 61);
+      ctx.fillStyle = '#00ff64';
+      ctx.font = 'bold 9px monospace';
+      ctx.fillText('● MAYA ONLINE', w - 114, 96);
+      ctx.fillStyle = '#ffaa00';
+      ctx.font = '8px monospace';
+      ctx.fillText('PERF: OPTIMAL', w - 114, 122);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillText('ADMIN HOST LOCKED', w - 118, 146);
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillText('ADMIN WORKSTATION', w - 118, h - 20);
+    } else if (preset === 'jarvis-core') {
+      // JARVIS Mark-VII Arc Reactor & Command Telemetry Screen
+      const cx = w * 0.34;
+      const cy = h * 0.56;
+      const rings = [86, 68, 50, 32];
+      rings.forEach((r, idx) => {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(idx % 2 === 0 ? t * (0.45 + idx * 0.12) : -t * (0.38 + idx * 0.14));
+        ctx.strokeStyle = idx === 1 ? '#64ffda' : '#00d2ff';
+        ctx.lineWidth = idx === 0 ? 3.5 : 2;
+        ctx.setLineDash(idx % 2 === 0 ? [16, 10] : [8, 6]);
+        ctx.beginPath();
+        ctx.arc(0, 0, r, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      });
+      ctx.setLineDash([]);
+      const grad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 38);
+      grad.addColorStop(0, '#e0f2fe');
+      grad.addColorStop(0.4, '#00d2ff');
+      grad.addColorStop(1, 'rgba(0, 210, 255, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 38, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#071427';
+      ctx.fillRect(w * 0.62, 46, 180, 224);
+      ctx.strokeStyle = 'rgba(0, 210, 255, 0.55)';
+      ctx.lineWidth = 1.4;
+      ctx.strokeRect(w * 0.62, 46, 180, 224);
+
+      ctx.fillStyle = '#00d2ff';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText('JARVIS // OPS HUD', w * 0.62 + 12, 68);
+      const metrics = [
+        ['ARC CORE', 0.92],
+        ['NEURAL SWARM', 0.68 + 0.2 * Math.sin(t * 2)],
+        ['NET MESH', 0.84],
+        ['CAD FIELD', 0.55 + 0.3 * Math.cos(t * 1.7)],
+      ] as const;
+      metrics.forEach(([name, pct], idx) => {
+        const by = 88 + idx * 42;
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = '9px monospace';
+        ctx.fillText(name, w * 0.62 + 12, by);
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(w * 0.62 + 12, by + 6, 156, 8);
+        ctx.fillStyle = idx === 1 ? '#64ffda' : '#00d2ff';
+        ctx.fillRect(w * 0.62 + 12, by + 6, Math.round(156 * Math.min(1, Math.max(0.1, pct))), 8);
+      });
+    } else if (preset === 'virtual-os') {
       // Virtual OS Desktop: window manager, live terminal shell, file tree, and CPU/RAM graphs
       ctx.fillStyle = 'rgba(10, 18, 36, 0.92)';
       ctx.fillRect(10, 44, 138, 204);

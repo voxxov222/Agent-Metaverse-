@@ -5,6 +5,7 @@ import type {
   AgentProfile,
   CameraMode,
   EnvironmentTheme,
+  JarvisHologramConfig,
   NeuralRegion,
   NeuralRegionId,
   PhysicsGravityPreset,
@@ -77,6 +78,7 @@ interface CommandViewport3DProps {
   haloGlitchPulseAt: number;
   pendingApprovalsCount: number;
   runningTasksCount: number;
+  jarvisHologram?: JarvisHologramConfig;
   onClickHaloPanel?: (moduleId: HaloModuleId, panelId: string) => void;
 }
 
@@ -108,6 +110,7 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     ) => void;
     setPrototype: (kind: PrototypeKind, color: string, metalness: number) => void;
     triggerPulse: (sig: PulseSignal) => void;
+    setJarvisHologram: (cfg: JarvisHologramConfig) => void;
     setCameraGoal: (mode: CameraMode, agentId: string | null) => void;
     syncHalo: () => void;
   } | null>(null);
@@ -282,6 +285,9 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       });
     };
     syncHaloState();
+    if (propsRef.current.jarvisHologram) {
+      neuralCore.setHologramState(propsRef.current.jarvisHologram);
+    }
 
     if (!isSoftwareGl) {
       renderer.compile(scene, camera);
@@ -303,6 +309,20 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
           _desiredCamPos.copy(pos).addScaledVector(dirToCore, 3.1);
           _desiredCamPos.y = 2.05;
           _desiredTarget.set(pos.x, 1.35, pos.z);
+          transitionActive = true;
+        }
+      } else if (mode === 'rig-focus') {
+        const rig =
+          propsRef.current.worldObjects.find((o) => o.id === 'prop-rig-west') ??
+          propsRef.current.worldObjects.find((o) => o.kind === 'quantum-workstation');
+        if (rig) {
+          const rx = rig.position[0];
+          const ry = rig.position[1] ?? 0;
+          const rz = rig.position[2];
+          const rot = rig.rotationY ?? 0;
+          const dist = 3.1;
+          _desiredCamPos.set(rx + Math.sin(rot) * dist, ry + 2.1, rz + Math.cos(rot) * dist);
+          _desiredTarget.set(rx, ry + 1.28, rz);
           transitionActive = true;
         }
       } else if (mode === 'walk') {
@@ -545,6 +565,9 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
         const rig = sig.fromAgentId ? agentRigs.get(sig.fromAgentId) : undefined;
         neuralCore.triggerPulse(sig.regionId, rig?.root.position);
       },
+      setJarvisHologram: (cfg) => {
+        neuralCore.setHologramState(cfg);
+      },
       setCameraGoal,
       syncHalo: syncHaloState,
     };
@@ -756,6 +779,12 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       sceneApiRef.current?.triggerPulse(props.latestPulse);
     }
   }, [props.latestPulse]);
+
+  useEffect(() => {
+    if (props.jarvisHologram) {
+      sceneApiRef.current?.setJarvisHologram(props.jarvisHologram);
+    }
+  }, [props.jarvisHologram]);
 
   useEffect(() => {
     sceneApiRef.current?.setCameraGoal(props.cameraMode, props.selectedAgentId);

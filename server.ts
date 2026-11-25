@@ -39,12 +39,17 @@ import {
   validateExternalUrl,
 } from './src/utils/orchestratorLogic';
 import { buildImplementationRoadmap, MEDIA_STORAGE_DIR, WorldPresenceStore } from './src/server/worldPresence';
+import { collectHostWorkstationMetrics } from './src/server/workstationMetrics';
+import { fetchGodsEyeSnapshot, geocodeLocation } from './src/server/godsEyeService';
+import { JarvisOperationsEngine } from './src/server/jarvisCommandEngine';
 import { validateMediaUpload } from './src/utils/worldEnhancements';
 import { KernelCommandBus, verifyAuditChain } from './src/server/kernelBus';
 import { createHaloCommand } from './packages/halo/commandBus';
 import type {
   AgentProfile,
   ClientWsEvent,
+  JarvisDomainId,
+  JarvisHologramModelId,
   MemoryItem,
   OutboundCommDraft,
   ProjectRecord,
@@ -61,6 +66,7 @@ const wss = new WebSocketServer({ server, path: '/ws' });
 const store = new OsStateStore();
 const worldStore = new WorldPresenceStore();
 const kernelBus = new KernelCommandBus(store, worldStore);
+const jarvisEngine = new JarvisOperationsEngine(store);
 
 ensureSandboxInitialized();
 
@@ -207,6 +213,128 @@ app.get('/api/bootstrap', (_req, res) => {
     roadmap: buildImplementationRoadmap(store.integrations, isAdminClaimed(), isGeminiConfigured()),
     kernel: kernelBus.getSnapshot(),
   });
+});
+
+app.get('/api/workstation/metrics', (_req, res) => {
+  const activeAgents = store.agents.filter((a) => a.status !== 'idle').length;
+  const avgLoad =
+    store.regions.length > 0
+      ? store.regions.reduce((sum, r) => sum + r.load, 0) / store.regions.length
+      : 0;
+  const metrics = collectHostWorkstationMetrics(activeAgents, avgLoad);
+  res.json({
+    metrics,
+    activeAgents,
+    totalAgents: store.agents.length,
+    runningTasks: store.projects.flatMap((p) => p.tasks).filter((t) => t.status === 'in-progress').length,
+    vaultClaimed: isAdminClaimed(),
+    geminiConfigured: isGeminiConfigured(),
+  });
+});
+
+app.get('/api/gods-eye/snapshot', async (req, res) => {
+  const lat = Number(req.query.lat ?? 37.7749);
+  const lon = Number(req.query.lon ?? -122.4194);
+  const snapshot = await fetchGodsEyeSnapshot(
+    Number.isFinite(lat) ? lat : 37.7749,
+    Number.isFinite(lon) ? lon : -122.4194,
+  );
+  res.json(snapshot);
+});
+
+app.get('/api/gods-eye/geocode', async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) {
+    res.status(400).json({ error: 'Search query q is required.' });
+    return;
+  }
+  const results = await geocodeLocation(q);
+  res.json({ results });
+});
+
+// JARVIS Command Center Operations Engine
+app.get('/api/jarvis/state', (_req, res) => {
+  res.json(jarvisEngine.getSnapshot());
+});
+
+app.post('/api/jarvis/dispatch', async (req, res) => {
+  if (kernelBus.killSwitchActive) {
+    res.status(423).json({ error: 'Global KILL SWITCH is active. Resume system in HALO Security Center first.' });
+    return;
+  }
+  const { prompt, domain } = req.body ?? {};
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    res.status(400).json({ error: 'JARVIS command prompt is required.' });
+    return;
+  }
+  const requestedDomain: JarvisDomainId =
+    domain === 'security' ||
+    domain === 'engineering' ||
+    domain === 'development' ||
+    domain === 'finance' ||
+    domain === 'science' ||
+    domain === 'business' ||
+    domain === 'medical'
+      ? domain
+      : 'core';
+
+  const entry = await jarvisEngine.dispatchCommand(
+    prompt.trim(),
+    requestedDomain,
+    broadcast,
+    async (cleanPrompt, dom, sysContext) => {
+      return runCentralCommand(
+        `[JARVIS DOMAIN: ${dom.toUpperCase()}]\nOperator Request: ${cleanPrompt}`,
+        sysContext,
+      );
+    },
+  );
+  res.json({ entry, state: jarvisEngine.getSnapshot() });
+});
+
+app.post('/api/jarvis/hologram', (req, res) => {
+  const { model, explodeFactor, heatmap, scanSubnet } = req.body ?? {};
+  if (scanSubnet) {
+    jarvisEngine.scanNetworkTopology(broadcast);
+    res.json({ hologram: jarvisEngine.hologram, state: jarvisEngine.getSnapshot() });
+    return;
+  }
+  const allowedModel: JarvisHologramModelId | undefined =
+    model === 'neural-lattice' || model === 'methane' || model === 'stark-gear' || model === 'network-topology'
+      ? model
+      : undefined;
+  const hologram = jarvisEngine.setHologram(
+    {
+      model: allowedModel,
+      explodeFactor: typeof explodeFactor === 'number' ? explodeFactor : undefined,
+      heatmap: typeof heatmap === 'boolean' ? heatmap : undefined,
+    },
+    broadcast,
+  );
+  res.json({ hologram, state: jarvisEngine.getSnapshot() });
+});
+
+app.post('/api/jarvis/reminders', (req, res) => {
+  const { title, when, delayMs } = req.body ?? {};
+  if (typeof title !== 'string' || !title.trim()) {
+    res.status(400).json({ error: 'Reminder title is required.' });
+    return;
+  }
+  const reminder = jarvisEngine.scheduleReminder(
+    title.trim(),
+    typeof delayMs === 'number' && Number.isFinite(delayMs) ? delayMs : String(when || 'in 15s'),
+    broadcast,
+  );
+  res.json({ reminder, state: jarvisEngine.getSnapshot() });
+});
+
+app.delete('/api/jarvis/reminders/:id', (req, res) => {
+  const deleted = jarvisEngine.deleteReminder(req.params.id);
+  if (!deleted) {
+    res.status(404).json({ error: 'Reminder not found.' });
+    return;
+  }
+  res.json({ ok: true, state: jarvisEngine.getSnapshot() });
 });
 
 app.get('/api/kernel/state', (_req, res) => {
