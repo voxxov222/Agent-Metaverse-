@@ -4,7 +4,38 @@ export type EnvironmentTheme =
   | 'outdoor-world'
   | 'neural-chamber'
   | 'holo-ops'
-  | 'aether-district';
+  | 'aether-district'
+  | 'orbital-station'
+  | 'alpine-observatory'
+  | 'cyber-metropolis'
+  | 'bioluminescent-canyon';
+
+export type SkyboxPresetId =
+  | 'theme-auto'
+  | 'aether-twilight'
+  | 'orbital-deep-space'
+  | 'aurora-horizon'
+  | 'golden-canyon'
+  | 'cyber-neon-rain'
+  | 'obsidian-studio';
+
+export interface SkyboxConfig {
+  enabled: boolean;
+  preset: SkyboxPresetId;
+  zenithColor: string;
+  horizonColor: string;
+  nadirColor: string;
+  sunColor: string;
+  sunElevation: number;
+  sunAzimuth: number;
+  sunSize: number;
+  starDensity: number;
+  auroraIntensity: number;
+  cloudCoverage: number;
+  nebulaHue: number;
+  envIntensity: number;
+  exposure: number;
+}
 
 export type WeatherMode = 'clear' | 'rain' | 'ion-storm';
 
@@ -256,10 +287,27 @@ export interface WorldPlayer {
 
 export type WorldPropKind =
   | 'workstation-desk'
+  | 'quantum-workstation'
+  | 'mainframe-rack'
+  | 'holo-terrain-table'
+  | 'holo-hud-terminal'
+  | 'arch-portal'
   | 'holo-kiosk'
   | 'relay-beacon'
   | 'data-monolith'
-  | 'lounge-pod';
+  | 'lounge-pod'
+  | 'media-screen'
+  | 'holo-billboard'
+  | 'kinetic-sculpture'
+  | 'quantum-crate';
+
+export type PhysicsGravityPreset = 'earth' | 'lunar' | 'zero-g';
+
+export type WorldObjectMotion = 'static' | 'hover' | 'orbit' | 'patrol' | 'spin';
+
+export type ScreenMediaType = 'procedural' | 'image' | 'gif' | 'video';
+
+export type ScreenProceduralPreset = 'virtual-os' | 'matrix' | 'waveform' | 'radar' | 'neural-pulse';
 
 export interface WorldObject {
   id: string;
@@ -269,6 +317,11 @@ export interface WorldObject {
   rotationY: number;
   color: string;
   ownerCallsign: string;
+  motion?: WorldObjectMotion;
+  scale?: number;
+  mediaUrl?: string;
+  mediaType?: ScreenMediaType;
+  screenPreset?: ScreenProceduralPreset;
   createdAt: number;
   updatedAt: number;
 }
@@ -306,9 +359,10 @@ export type ServerWsEvent =
   | { type: 'activity:logged'; entry: ActivityLogEntry }
   | { type: 'comm:updated'; draft: OutboundCommDraft }
   | { type: 'finance:updated'; item: FinancialRequest }
-  | { type: 'world:welcome'; selfId: string; players: WorldPlayer[]; objects: WorldObject[]; chat: WorldChatMessage[] }
+  | { type: 'world:welcome'; selfId: string; players: WorldPlayer[]; objects: WorldObject[]; chat: WorldChatMessage[]; skybox?: SkyboxConfig }
   | { type: 'world:players'; players: WorldPlayer[] }
   | { type: 'world:objects'; objects: WorldObject[] }
+  | { type: 'world:skybox'; skybox: SkyboxConfig }
   | { type: 'world:chat'; message: WorldChatMessage }
   | { type: 'halo:state'; snapshot: Record<string, unknown> }
   | {
@@ -331,9 +385,31 @@ export type ClientWsEvent =
   | { type: 'world:move'; position: [number, number, number]; yaw: number }
   | { type: 'world:emote'; emote: WorldPlayer['emote'] }
   | { type: 'world:chat'; text: string; radius?: number }
-  | { type: 'world:place-object'; object: { id?: string; kind: WorldPropKind; label: string; position: [number, number, number]; rotationY?: number; color?: string; ownerCallsign?: string } }
+  | {
+      type: 'world:place-object';
+      object: {
+        id?: string;
+        kind: WorldPropKind;
+        label: string;
+        position: [number, number, number];
+        rotationY?: number;
+        color?: string;
+        ownerCallsign?: string;
+        motion?: WorldObjectMotion;
+        scale?: number;
+        mediaUrl?: string;
+        mediaType?: ScreenMediaType;
+        screenPreset?: ScreenProceduralPreset;
+      };
+    }
   | { type: 'world:move-object'; id: string; position: [number, number, number]; rotationY?: number }
+  | {
+      type: 'world:update-object';
+      id: string;
+      patch: Partial<Pick<WorldObject, 'label' | 'color' | 'motion' | 'scale' | 'mediaUrl' | 'mediaType' | 'screenPreset' | 'rotationY' | 'position'>>;
+    }
   | { type: 'world:remove-object'; id: string }
+  | { type: 'world:skybox'; skybox: SkyboxConfig }
   | {
       type: 'halo:cursor';
       callsign: string;

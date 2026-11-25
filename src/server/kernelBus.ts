@@ -735,13 +735,56 @@ export class KernelCommandBus {
           kind: (args.kind as any) || 'holo-kiosk',
           label: String(args.label || 'HALO Prop'),
           position: Array.isArray(args.position) ? (args.position as [number, number, number]) : [2, 0, 3],
+          rotationY: typeof args.rotationY === 'number' ? args.rotationY : 0,
           color: typeof args.color === 'string' ? args.color : '#22d3ee',
           ownerCallsign: cmd.actor,
+          motion: args.motion as any,
+          scale: typeof args.scale === 'number' ? args.scale : undefined,
+          mediaUrl: typeof args.mediaUrl === 'string' ? args.mediaUrl : undefined,
+          mediaType: args.mediaType as any,
+          screenPreset: args.screenPreset as any,
         });
         this.store.emit({ type: 'world:objects', objects: this.worldStore.objects });
         undoCommand = buildUndoCommand(cmd, { placedId: placed.id });
         data = { object: placed, objects: this.worldStore.objects };
         message = `Placed "${placed.label}" in world.`;
+        break;
+      }
+
+      case 'world.object.move': {
+        const pos: [number, number, number] = Array.isArray(args.position)
+          ? [Number(args.position[0] ?? 0), Number(args.position[1] ?? 0), Number(args.position[2] ?? 0)]
+          : [0, 0, 0];
+        const moved = this.worldStore.moveObject(
+          cmd.target,
+          pos,
+          typeof args.rotationY === 'number' ? args.rotationY : undefined,
+        );
+        if (!moved) {
+          return { commandId: cmd.id, ok: false, status: 'error', message: `Object ${cmd.target} not found.` };
+        }
+        this.store.emit({ type: 'world:objects', objects: this.worldStore.objects });
+        data = { object: moved, objects: this.worldStore.objects };
+        message = `Moved "${moved.label}" to (${moved.position[0]}, ${moved.position[2]}).`;
+        break;
+      }
+
+      case 'world.object.update': {
+        const updated = this.worldStore.updateObject(cmd.target, args as any);
+        if (!updated) {
+          return { commandId: cmd.id, ok: false, status: 'error', message: `Object ${cmd.target} not found.` };
+        }
+        this.store.emit({ type: 'world:objects', objects: this.worldStore.objects });
+        data = { object: updated, objects: this.worldStore.objects };
+        message = `Updated "${updated.label}".`;
+        break;
+      }
+
+      case 'world.skybox': {
+        const skybox = this.worldStore.setSkybox(args as any);
+        this.store.emit({ type: 'world:skybox', skybox });
+        data = { skybox };
+        message = `Updated 3D skybox (${skybox.preset}).`;
         break;
       }
 

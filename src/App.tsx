@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, X, Wifi, WifiOff, ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Wifi, WifiOff, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Move, Crosshair } from 'lucide-react';
 import { CommandViewport3D, type PulseSignal } from './components/CommandViewport3D';
 import { NeuralLinkPanel } from './components/panels/NeuralLinkPanel';
 import { AgentStudioPanel } from './components/panels/AgentStudioPanel';
@@ -33,6 +33,7 @@ import {
   saveSnapshot,
 } from './utils/offlineStore';
 import { reconcileOfflineQueue } from './utils/orchestratorLogic';
+import { DEFAULT_SKYBOX_CONFIG, ENVIRONMENT_THEME_OPTIONS } from './utils/worldEnhancements';
 import type {
   ActivityLogEntry,
   AgentProfile,
@@ -46,10 +47,12 @@ import type {
   NeuralRegionId,
   OfflineQueuedAction,
   OutboundCommDraft,
+  PhysicsGravityPreset,
   PluginManifest,
   ProjectRecord,
   RoadmapItem,
   ServerWsEvent,
+  SkyboxConfig,
   SystemTelemetry,
   TelemetryHistoryPoint,
   WeatherMode,
@@ -112,6 +115,18 @@ export default function App() {
   const [worldChat, setWorldChat] = useState<WorldChatMessage[]>([]);
   const [roadmap, setRoadmap] = useState<RoadmapItem[]>([]);
   const [touchMoveVector, setTouchMoveVector] = useState<{ x: number; z: number }>({ x: 0, z: 0 });
+  const [skybox, setSkybox] = useState<SkyboxConfig>(DEFAULT_SKYBOX_CONFIG);
+  const [selectedWorldObjectId, setSelectedWorldObjectId] = useState<string | null>(null);
+  const [objectDragMode, setObjectDragMode] = useState(false);
+  const [tapPlaceActive, setTapPlaceActive] = useState(false);
+  const [gridSnap, setGridSnap] = useState(true);
+  const [holdingObjectId, setHoldingObjectId] = useState<string | null>(null);
+  const [gravityPreset, setGravityPreset] = useState<PhysicsGravityPreset>('earth');
+  const [physicsCommand, setPhysicsCommand] = useState<{
+    kind: 'drop' | 'nudge' | 'wake';
+    objectId?: string;
+    nonce: number;
+  } | null>(null);
 
   const isOffline = browserOffline || simulatedOffline;
   const appliedOfflineIdsRef = useRef<Set<string>>(new Set());
@@ -183,6 +198,7 @@ export default function App() {
         if (Array.isArray(data.worldObjects)) setWorldObjects(data.worldObjects);
         if (Array.isArray(data.worldChat)) setWorldChat(data.worldChat);
         if (Array.isArray(data.roadmap)) setRoadmap(data.roadmap);
+        if (data.worldSkybox) setSkybox(data.worldSkybox);
 
         applyKernelPayloadToStore({
           kernel: data.kernel,
@@ -402,10 +418,13 @@ export default function App() {
             setWorldPlayers(event.players);
             setWorldObjects(event.objects);
             setWorldChat(event.chat);
+            if (event.skybox) setSkybox(event.skybox);
           } else if (event.type === 'world:players') {
             setWorldPlayers(event.players);
           } else if (event.type === 'world:objects') {
             setWorldObjects(event.objects);
+          } else if (event.type === 'world:skybox') {
+            setSkybox(event.skybox);
           } else if (event.type === 'world:chat') {
             setWorldChat((prev) => [...prev, event.message].slice(-60));
           } else if (event.type === 'halo:state') {
@@ -775,8 +794,15 @@ export default function App() {
         theme={theme}
         weather={weather}
         timeOfDayHours={timeOfDayHours}
+        skybox={skybox}
         cameraMode={cameraMode}
         selectedAgentId={selectedAgentId}
+        selectedWorldObjectId={selectedWorldObjectId}
+        objectDragMode={objectDragMode}
+        tapPlaceActive={tapPlaceActive}
+        gridSnap={gridSnap}
+        gravityPreset={gravityPreset}
+        physicsCommand={physicsCommand}
         prototypeKind={prototypeKind}
         prototypeColor={prototypeColor}
         prototypeMetalness={prototypeMetalness}
@@ -793,6 +819,37 @@ export default function App() {
           setCameraMode('core-focus');
           setActivePanel('neural-link');
         }}
+        onSelectWorldObject={(id) => {
+          setSelectedWorldObjectId(id);
+        }}
+        onMoveWorldObject={(id, position, rotationY) => {
+          setWorldObjects((prev) =>
+            prev.map((obj) =>
+              obj.id === id
+                ? { ...obj, position, rotationY: rotationY ?? obj.rotationY }
+                : obj,
+            ),
+          );
+          sendWs({ type: 'world:move-object', id, position, rotationY });
+        }}
+        onTapPlaceGround={(pos) => {
+          sendWs({
+            type: 'world:place-object',
+            object: {
+              kind: 'media-screen',
+              label: 'Quick Holo Screen',
+              position: pos,
+              rotationY: 0,
+              color: '#22d3ee',
+              ownerCallsign: callsign,
+              motion: 'hover',
+              mediaType: 'procedural',
+              screenPreset: 'waveform',
+            },
+          });
+          setTapPlaceActive(false);
+        }}
+        onHoldStateChange={setHoldingObjectId}
         onUserCameraOverride={() => {
           setCameraMode('orbit');
         }}
@@ -1033,6 +1090,30 @@ export default function App() {
                 worldObjects={worldObjects}
                 chatMessages={worldChat}
                 roadmap={roadmap}
+                theme={theme}
+                skybox={skybox}
+                selectedWorldObjectId={selectedWorldObjectId}
+                objectDragMode={objectDragMode}
+                tapPlaceActive={tapPlaceActive}
+                gridSnap={gridSnap}
+                gravityPreset={gravityPreset}
+                onChangeTheme={setTheme}
+                onChangeSkybox={(next) => {
+                  setSkybox(next);
+                  sendWs({ type: 'world:skybox', skybox: next });
+                }}
+                onChangeGravity={setGravityPreset}
+                onPhysicsCommand={(cmd) => setPhysicsCommand({ ...cmd, nonce: Date.now() })}
+                onSelectWorldObject={setSelectedWorldObjectId}
+                onToggleObjectDragMode={() => {
+                  setObjectDragMode((prev) => !prev);
+                  setTapPlaceActive(false);
+                }}
+                onToggleTapPlace={() => {
+                  setTapPlaceActive((prev) => !prev);
+                  setObjectDragMode(false);
+                }}
+                onToggleGridSnap={() => setGridSnap((prev) => !prev)}
                 onJoinUpdate={(nextName, nextColor) => {
                   setCallsign(nextName);
                   setAvatarColor(nextColor);
@@ -1046,7 +1127,16 @@ export default function App() {
                     object: { ...obj, ownerCallsign: callsign },
                   })
                 }
-                onRemoveObject={(id) => sendWs({ type: 'world:remove-object', id })}
+                onUpdateObject={(id, patch) => {
+                  setWorldObjects((prev) =>
+                    prev.map((item) => (item.id === id ? { ...item, ...patch } : item)),
+                  );
+                  sendWs({ type: 'world:update-object', id, patch });
+                }}
+                onRemoveObject={(id) => {
+                  if (selectedWorldObjectId === id) setSelectedWorldObjectId(null);
+                  sendWs({ type: 'world:remove-object', id });
+                }}
               />
             )}
           </div>
@@ -1104,9 +1194,64 @@ export default function App() {
         </div>
       )}
 
+      {/* 3D Touch-Hold / Tap-to-Place Status Banner */}
+      {(holdingObjectId || objectDragMode || tapPlaceActive || selectedWorldObjectId) && (
+        <div
+          aria-live="polite"
+          className="fixed top-26 md:top-16 left-4 z-20 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#0B101C]/94 border border-cyan-500/40 text-[11px] text-slate-200 shadow-lg"
+        >
+          {holdingObjectId ? (
+            <span className="text-cyan-300 font-medium">
+              Holding 3D object · Drag across deck · Q / E to rotate
+            </span>
+          ) : tapPlaceActive ? (
+            <span className="text-emerald-300 font-medium flex items-center gap-1.5">
+              <Crosshair className="w-3.5 h-3.5" />
+              Tap ground anywhere to place Holo Screen
+            </span>
+          ) : objectDragMode ? (
+            <span className="text-cyan-300 font-medium flex items-center gap-1.5">
+              <Move className="w-3.5 h-3.5" />
+              Drag 3D active · Grab any prop to reposition
+            </span>
+          ) : (
+            <span className="text-slate-300">
+              Selected:{' '}
+              <strong className="text-cyan-300">
+                {worldObjects.find((o) => o.id === selectedWorldObjectId)?.label ?? '3D Prop'}
+              </strong>{' '}
+              · Hold & drag to move
+            </span>
+          )}
+          {selectedWorldObjectId && (
+            <button
+              type="button"
+              onClick={() => setActivePanel('world')}
+              className="px-2 py-0.5 rounded bg-cyan-500/20 border border-cyan-400/50 text-cyan-200 hover:bg-cyan-500/30 cursor-pointer"
+            >
+              Inspect
+            </button>
+          )}
+          {(objectDragMode || tapPlaceActive || selectedWorldObjectId) && (
+            <button
+              type="button"
+              aria-label="Clear 3D selection or mode"
+              onClick={() => {
+                setObjectDragMode(false);
+                setTapPlaceActive(false);
+                setSelectedWorldObjectId(null);
+              }}
+              className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 hover:text-white cursor-pointer"
+            >
+              Done
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Collapsible Bottom Control Dock (hidden while full-screen Flat/Shared HALO HUD is open) */}
       {!(haloIsOpen && (haloFormFactor === 'flat' || haloFormFactor === 'shared')) && (
-      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-[min(1120px,96vw)] w-full pointer-events-none">
+      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-[min(1410px,98vw)] w-full pointer-events-none">
         <button
           type="button"
           onClick={() => setDockCollapsed((prev) => !prev)}
@@ -1117,7 +1262,7 @@ export default function App() {
         </button>
 
         {!dockCollapsed && (
-          <div className="pointer-events-auto w-full bg-[#0B101C]/94 border border-slate-800 rounded-xl px-3 py-2 flex flex-wrap lg:flex-nowrap items-center justify-between gap-2.5 text-xs shadow-xl">
+          <div className="pointer-events-auto w-full bg-[#0B101C]/94 border border-slate-800 rounded-xl px-2.5 py-1.5 flex flex-wrap xl:flex-nowrap items-center justify-between gap-1.5 text-xs shadow-xl">
             {/* Environment Theme */}
             <div className="flex items-center gap-1.5 shrink-0">
               <label htmlFor="env-theme-select" className="text-slate-400 whitespace-nowrap">
@@ -1130,12 +1275,11 @@ export default function App() {
                 onChange={(e) => setTheme(e.target.value as EnvironmentTheme)}
                 className="bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-slate-100"
               >
-                <option value="command-center">Command Center</option>
-                <option value="aether-district">Aether District</option>
-                <option value="tech-office">Tech Office</option>
-                <option value="outdoor-world">Outdoor World</option>
-                <option value="neural-chamber">Neural Chamber</option>
-                <option value="holo-ops">Holo Ops Room</option>
+                {ENVIRONMENT_THEME_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.tier === 'hyper' ? `${opt.label} (Hyper)` : opt.label}
+                  </option>
+                ))}
               </select>
             </div>
 
@@ -1189,7 +1333,7 @@ export default function App() {
             </div>
 
             {/* Quick OS Modules & Offline / Motion Toggles */}
-            <div className="flex flex-wrap items-center gap-1.5">
+            <div className="flex flex-wrap xl:flex-nowrap items-center gap-1">
               {(
                 [
                   ['telemetry', 'Telemetry'],
@@ -1212,6 +1356,22 @@ export default function App() {
                   {label}
                 </button>
               ))}
+
+              <button
+                type="button"
+                aria-label="Toggle 3D object drag mode"
+                onClick={() => {
+                  setObjectDragMode((prev) => !prev);
+                  setTapPlaceActive(false);
+                }}
+                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                  objectDragMode
+                    ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
+                    : 'bg-slate-950 border-slate-800 text-slate-300'
+                }`}
+              >
+                Drag 3D
+              </button>
 
               <button
                 type="button"

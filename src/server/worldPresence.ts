@@ -3,24 +3,35 @@ import path from 'path';
 import type {
   IntegrationProvider,
   RoadmapItem,
+  ScreenMediaType,
+  ScreenProceduralPreset,
+  SkyboxConfig,
   WorldChatMessage,
   WorldObject,
+  WorldObjectMotion,
   WorldPlayer,
   WorldPropKind,
 } from '../types/os';
+import {
+  ALLOWED_MEDIA_TYPES,
+  ALLOWED_MOTIONS,
+  ALLOWED_PROP_KINDS,
+  ALLOWED_SCREEN_PRESETS,
+  DEFAULT_SKYBOX_CONFIG,
+  sanitizeMediaUrl,
+  sanitizeSkyboxConfig,
+} from '../utils/worldEnhancements';
 
 const WORKSPACE_ROOT = path.resolve(process.cwd(), '.vcalabs-workspace');
 const WORLD_STATE_FILE = path.join(WORKSPACE_ROOT, '.aether-world.json');
-
-const ALLOWED_PROP_KINDS = new Set<WorldPropKind>([
-  'workstation-desk',
-  'holo-kiosk',
-  'relay-beacon',
-  'data-monolith',
-  'lounge-pod',
-]);
+export const MEDIA_STORAGE_DIR = path.join(WORKSPACE_ROOT, '.media');
 
 function clampCoord(v: number, min = -42, max = 42): number {
+  if (!Number.isFinite(v)) return 0;
+  return Number(Math.max(min, Math.min(max, v)).toFixed(2));
+}
+
+function clampHeight(v: number, min = 0, max = 24): number {
   if (!Number.isFinite(v)) return 0;
   return Number(Math.max(min, Math.min(max, v)).toFixed(2));
 }
@@ -36,6 +47,8 @@ function defaultStarterObjects(): WorldObject[] {
       rotationY: 0.4,
       color: '#22d3ee',
       ownerCallsign: 'Architect-Root',
+      motion: 'hover',
+      scale: 1,
       createdAt: now,
       updatedAt: now,
     },
@@ -47,6 +60,10 @@ function defaultStarterObjects(): WorldObject[] {
       rotationY: -0.65,
       color: '#38bdf8',
       ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      mediaType: 'procedural',
+      screenPreset: 'radar',
       createdAt: now,
       updatedAt: now,
     },
@@ -58,6 +75,107 @@ function defaultStarterObjects(): WorldObject[] {
       rotationY: Math.PI,
       color: '#a855f7',
       ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      mediaType: 'procedural',
+      screenPreset: 'matrix',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'prop-holo-wall-north',
+      kind: 'media-screen',
+      label: 'Orbital Telemetry Display',
+      position: [-5.8, 0, -6.5],
+      rotationY: 0.45,
+      color: '#22d3ee',
+      ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      mediaType: 'procedural',
+      screenPreset: 'waveform',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'prop-crate-stack-1',
+      kind: 'quantum-crate',
+      label: 'Quantum Storage Node A',
+      position: [4.2, 1.4, 7.6],
+      rotationY: 0.25,
+      color: '#38bdf8',
+      ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'prop-rig-west',
+      kind: 'quantum-workstation',
+      label: 'Operator Triple-Screen Rig',
+      position: [-4.8, 0, 5.2],
+      rotationY: 0.55,
+      color: '#22d3ee',
+      ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      mediaType: 'procedural',
+      screenPreset: 'virtual-os',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'prop-holotable-east',
+      kind: 'holo-terrain-table',
+      label: 'Tactical Holo-Terrain Matrix',
+      position: [5.2, 0, 3.6],
+      rotationY: -0.35,
+      color: '#38bdf8',
+      ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'prop-mainframe-nw',
+      kind: 'mainframe-rack',
+      label: 'Aether Blade Supercomputer',
+      position: [-8.4, 0, -3.2],
+      rotationY: 0.9,
+      color: '#a855f7',
+      ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'prop-hud-ne',
+      kind: 'holo-hud-terminal',
+      label: 'Planetary Lock Holo-HUD',
+      position: [7.8, 0, -1.2],
+      rotationY: -0.95,
+      color: '#22d3ee',
+      ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
+      mediaType: 'procedural',
+      screenPreset: 'virtual-os',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
+      id: 'prop-arch-north',
+      kind: 'arch-portal',
+      label: 'North Sector Command Arch',
+      position: [0, 0, -10.5],
+      rotationY: 0,
+      color: '#38bdf8',
+      ownerCallsign: 'Architect-Root',
+      motion: 'static',
+      scale: 1,
       createdAt: now,
       updatedAt: now,
     },
@@ -68,19 +186,26 @@ export class WorldPresenceStore {
   public players = new Map<string, WorldPlayer>();
   public objects: WorldObject[] = [];
   public chat: WorldChatMessage[] = [];
+  public skybox: SkyboxConfig = { ...DEFAULT_SKYBOX_CONFIG };
 
   constructor() {
-    this.loadObjects();
+    this.loadState();
   }
 
-  private loadObjects(): void {
+  private loadState(): void {
     try {
       if (!fs.existsSync(WORKSPACE_ROOT)) {
         fs.mkdirSync(WORKSPACE_ROOT, { recursive: true });
       }
+      if (!fs.existsSync(MEDIA_STORAGE_DIR)) {
+        fs.mkdirSync(MEDIA_STORAGE_DIR, { recursive: true });
+      }
       if (fs.existsSync(WORLD_STATE_FILE)) {
         const raw = fs.readFileSync(WORLD_STATE_FILE, 'utf8');
-        const parsed = JSON.parse(raw) as { objects?: WorldObject[] };
+        const parsed = JSON.parse(raw) as { objects?: WorldObject[]; skybox?: SkyboxConfig };
+        if (parsed.skybox) {
+          this.skybox = sanitizeSkyboxConfig(parsed.skybox);
+        }
         if (Array.isArray(parsed.objects) && parsed.objects.length > 0) {
           this.objects = parsed.objects;
           return;
@@ -90,18 +215,28 @@ export class WorldPresenceStore {
       // fall through to starter seed
     }
     this.objects = defaultStarterObjects();
-    this.persistObjects();
+    this.persistState();
   }
 
-  private persistObjects(): void {
+  private persistState(): void {
     try {
       if (!fs.existsSync(WORKSPACE_ROOT)) {
         fs.mkdirSync(WORKSPACE_ROOT, { recursive: true });
       }
-      fs.writeFileSync(WORLD_STATE_FILE, JSON.stringify({ objects: this.objects }, null, 2), 'utf8');
+      fs.writeFileSync(
+        WORLD_STATE_FILE,
+        JSON.stringify({ objects: this.objects, skybox: this.skybox }, null, 2),
+        'utf8',
+      );
     } catch {
       // Ignore transient FS errors
     }
+  }
+
+  public setSkybox(next: Partial<SkyboxConfig>): SkyboxConfig {
+    this.skybox = sanitizeSkyboxConfig({ ...this.skybox, ...next });
+    this.persistState();
+    return this.skybox;
   }
 
   public joinPlayer(
@@ -194,17 +329,36 @@ export class WorldPresenceStore {
     rotationY?: number;
     color?: string;
     ownerCallsign?: string;
+    motion?: WorldObjectMotion;
+    scale?: number;
+    mediaUrl?: string;
+    mediaType?: ScreenMediaType;
+    screenPreset?: ScreenProceduralPreset;
   }): WorldObject {
     const kind: WorldPropKind = ALLOWED_PROP_KINDS.has(input.kind) ? input.kind : 'holo-kiosk';
+    const motion: WorldObjectMotion = input.motion && ALLOWED_MOTIONS.has(input.motion) ? input.motion : 'static';
+    const mediaType: ScreenMediaType =
+      input.mediaType && ALLOWED_MEDIA_TYPES.has(input.mediaType) ? input.mediaType : 'procedural';
+    const screenPreset: ScreenProceduralPreset =
+      input.screenPreset && ALLOWED_SCREEN_PRESETS.has(input.screenPreset) ? input.screenPreset : 'waveform';
+    const scale =
+      typeof input.scale === 'number' && Number.isFinite(input.scale)
+        ? Number(Math.max(0.4, Math.min(3.0, input.scale)).toFixed(2))
+        : 1;
     const now = Date.now();
     const obj: WorldObject = {
       id: input.id && typeof input.id === 'string' ? input.id.slice(0, 48) : `prop-${now}-${Math.random().toString(36).slice(2, 5)}`,
       kind,
       label: (input.label || kind).trim().slice(0, 40),
-      position: [clampCoord(input.position[0]), 0, clampCoord(input.position[2])],
+      position: [clampCoord(input.position[0]), clampHeight(input.position[1] ?? 0), clampCoord(input.position[2])],
       rotationY: Number.isFinite(input.rotationY) ? Number(input.rotationY) : 0,
       color: typeof input.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(input.color) ? input.color : '#22d3ee',
       ownerCallsign: (input.ownerCallsign || 'Operator').trim().slice(0, 24),
+      motion,
+      scale,
+      mediaUrl: sanitizeMediaUrl(input.mediaUrl),
+      mediaType,
+      screenPreset,
       createdAt: now,
       updatedAt: now,
     };
@@ -214,19 +368,66 @@ export class WorldPresenceStore {
     } else {
       this.objects.push(obj);
     }
-    this.persistObjects();
+    this.persistState();
     return obj;
   }
 
   public moveObject(id: string, position: [number, number, number], rotationY?: number): WorldObject | null {
     const obj = this.objects.find((o) => o.id === id);
     if (!obj) return null;
-    obj.position = [clampCoord(position[0]), 0, clampCoord(position[2])];
+    obj.position = [clampCoord(position[0]), clampHeight(position[1] ?? 0), clampCoord(position[2])];
     if (typeof rotationY === 'number' && Number.isFinite(rotationY)) {
-      obj.rotationY = rotationY;
+      obj.rotationY = Number(rotationY.toFixed(3));
     }
     obj.updatedAt = Date.now();
-    this.persistObjects();
+    this.persistState();
+    return obj;
+  }
+
+  public updateObject(
+    id: string,
+    patch: Partial<
+      Pick<
+        WorldObject,
+        'label' | 'color' | 'motion' | 'scale' | 'mediaUrl' | 'mediaType' | 'screenPreset' | 'rotationY' | 'position'
+      >
+    >,
+  ): WorldObject | null {
+    const obj = this.objects.find((o) => o.id === id);
+    if (!obj) return null;
+    if (typeof patch.label === 'string' && patch.label.trim()) {
+      obj.label = patch.label.trim().slice(0, 40);
+    }
+    if (typeof patch.color === 'string' && /^#[0-9a-fA-F]{6}$/.test(patch.color)) {
+      obj.color = patch.color;
+    }
+    if (patch.motion && ALLOWED_MOTIONS.has(patch.motion)) {
+      obj.motion = patch.motion;
+    }
+    if (typeof patch.scale === 'number' && Number.isFinite(patch.scale)) {
+      obj.scale = Number(Math.max(0.4, Math.min(3.0, patch.scale)).toFixed(2));
+    }
+    if (patch.mediaType && ALLOWED_MEDIA_TYPES.has(patch.mediaType)) {
+      obj.mediaType = patch.mediaType;
+    }
+    if (patch.screenPreset && ALLOWED_SCREEN_PRESETS.has(patch.screenPreset)) {
+      obj.screenPreset = patch.screenPreset;
+    }
+    if ('mediaUrl' in patch) {
+      obj.mediaUrl = sanitizeMediaUrl(patch.mediaUrl);
+    }
+    if (typeof patch.rotationY === 'number' && Number.isFinite(patch.rotationY)) {
+      obj.rotationY = Number(patch.rotationY.toFixed(3));
+    }
+    if (Array.isArray(patch.position) && patch.position.length >= 3) {
+      obj.position = [
+        clampCoord(patch.position[0]),
+        clampHeight(patch.position[1] ?? 0),
+        clampCoord(patch.position[2]),
+      ];
+    }
+    obj.updatedAt = Date.now();
+    this.persistState();
     return obj;
   }
 
@@ -234,7 +435,7 @@ export class WorldPresenceStore {
     const idx = this.objects.findIndex((o) => o.id === id);
     if (idx === -1) return false;
     this.objects.splice(idx, 1);
-    this.persistObjects();
+    this.persistState();
     return true;
   }
 }
@@ -252,9 +453,9 @@ export function buildImplementationRoadmap(
     {
       id: 'rm-m1-world',
       milestone: 'M1',
-      title: 'Aether District 3D Environment & Camera Controls',
+      title: 'Hyper-Realistic 3D Environments, Skybox Creator & Camera Controls',
       status: 'completed',
-      detail: '6 switchable 3D themes including Aether District campus, orbit/walk WASD/mobile D-pad controls, dynamic sky & weather.',
+      detail: '10 switchable 3D themes (including Orbital Station, Alpine Observatory, Cyber Metropolis, Bio-Lum Canyon), live GLSL Skybox Creator with PMREM reflections, and orbit/walk/touch controls.',
     },
     {
       id: 'rm-m1-multiplayer',
@@ -266,9 +467,9 @@ export function buildImplementationRoadmap(
     {
       id: 'rm-m1-build',
       milestone: 'M1',
-      title: 'Persistent World Object Placement & Undo/Redo',
+      title: 'Touch-Hold Object Dragging, Animated Screens & Media Upload',
       status: 'completed',
-      detail: 'Interactive placement/removal of 3D workstations, holo kiosks, relay beacons, and monoliths persisted to .vcalabs-workspace/.aether-world.json.',
+      detail: 'Direct touch-hold/pointer drag & snap placement in 3D, animated kinetic modes, procedural screen shaders, and Image/GIF/Video screen uploads.',
     },
     {
       id: 'rm-neural-viz',

@@ -1,13 +1,14 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type {
   AgentProfile,
   CameraMode,
   EnvironmentTheme,
   NeuralRegion,
   NeuralRegionId,
+  PhysicsGravityPreset,
+  SkyboxConfig,
   WeatherMode,
   WorldObject,
   WorldPlayer,
@@ -17,6 +18,9 @@ import { buildNeuralCore } from '../scene/neuralCore';
 import { createAgentVisualRig, type AgentVisualRig } from '../scene/agentBuilder';
 import { createMultiplayerAvatarRig, type MultiplayerAvatarRig } from '../scene/multiplayerAvatars';
 import { createEnvironmentController, type PrototypeKind } from '../scene/environments';
+import { createSkyboxController } from '../scene/skyboxCreator';
+import { WorldPhysicsEngine } from '../scene/worldPhysics';
+import { getDefaultSkyboxForTheme } from '../utils/worldEnhancements';
 import { createHalo3DController } from '../../packages/halo/halo3d';
 import type {
   HaloFormFactor,
@@ -41,8 +45,15 @@ interface CommandViewport3DProps {
   theme: EnvironmentTheme;
   weather: WeatherMode;
   timeOfDayHours: number;
+  skybox: SkyboxConfig;
   cameraMode: CameraMode;
   selectedAgentId: string | null;
+  selectedWorldObjectId: string | null;
+  objectDragMode?: boolean;
+  tapPlaceActive?: boolean;
+  gridSnap?: boolean;
+  gravityPreset?: PhysicsGravityPreset;
+  physicsCommand?: { kind: 'drop' | 'nudge' | 'wake'; objectId?: string; nonce: number } | null;
   prototypeKind: PrototypeKind;
   prototypeColor: string;
   prototypeMetalness: number;
@@ -51,6 +62,10 @@ interface CommandViewport3DProps {
   touchMoveVector?: { x: number; z: number };
   onSelectAgent: (agentId: string) => void;
   onSelectRegion: (regionId: NeuralRegionId) => void;
+  onSelectWorldObject?: (objectId: string | null) => void;
+  onMoveWorldObject?: (objectId: string, position: [number, number, number], rotationY?: number) => void;
+  onTapPlaceGround?: (position: [number, number, number]) => void;
+  onHoldStateChange?: (holdingObjectId: string | null) => void;
   onUserCameraOverride: () => void;
   onLocalMove?: (position: [number, number, number], yaw: number) => void;
   haloFormFactor: HaloFormFactor;
@@ -70,6 +85,8 @@ const _desiredTarget = new THREE.Vector3();
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const _planeHit = new THREE.Vector3();
 
 export function CommandViewport3D(props: CommandViewport3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -80,7 +97,15 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     syncAgents: (agents: AgentProfile[]) => void;
     syncPlayers: (players: WorldPlayer[], selfId: string | null) => void;
     syncWorldObjects: (objects: WorldObject[]) => void;
-    applyTheme: (theme: EnvironmentTheme, weather: WeatherMode, tod: number) => void;
+    setSelectedWorldObject: (id: string | null) => void;
+    setGravityPreset: (preset: PhysicsGravityPreset) => void;
+    runPhysicsCommand: (cmd: { kind: 'drop' | 'nudge' | 'wake'; objectId?: string }) => void;
+    applyThemeAndSkybox: (
+      theme: EnvironmentTheme,
+      weather: WeatherMode,
+      tod: number,
+      skybox: SkyboxConfig,
+    ) => void;
     setPrototype: (kind: PrototypeKind, color: string, metalness: number) => void;
     triggerPulse: (sig: PulseSignal) => void;
     setCameraGoal: (mode: CameraMode, agentId: string | null) => void;
@@ -120,16 +145,13 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     renderer.domElement.style.display = 'block';
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
+    renderer.domElement.style.touchAction = 'none';
 
     container.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    const pmremGenerator = new THREE.PMREMGenerator(renderer);
-    const envTex = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-    scene.environment = envTex;
-    pmremGenerator.dispose();
 
-    const camera = new THREE.PerspectiveCamera(54, width / height, 0.1, 280);
+    const camera = new THREE.PerspectiveCamera(54, width / height, 0.1, 320);
     camera.position.set(0, 6.4, 14.5);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -137,17 +159,29 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     controls.dampingFactor = 0.06;
     controls.maxPolarAngle = Math.PI * 0.48;
     controls.minDistance = 2.6;
-    controls.maxDistance = 32;
+    controls.maxDistance = 36;
     controls.target.set(0, 2.35, 0);
     controls.update();
 
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     const textures = createProceduralTextures(maxAniso);
-    const envCtrl = createEnvironmentController(scene, textures.floorAlbedo, textures.floorBump, isSoftwareGl);
+    const skyboxCtrl = createSkyboxController();
+    scene.add(skyboxCtrl.mesh);
+
+    const envCtrl = createEnvironmentController(
+      scene,
+      textures.floorAlbedo,
+      textures.floorBump,
+      textures.floorRoughness,
+      maxAniso,
+      isSoftwareGl,
+    );
     scene.add(envCtrl.root);
 
-    const neuralCore = buildNeuralCore(isSoftwareGl);
+    const neuralCore = buildNeuralCore(isSoftwareGl, maxAniso);
     scene.add(neuralCore.group);
+
+    const worldPhysics = new WorldPhysicsEngine(propsRef.current.gravityPreset ?? 'earth');
 
     const halo3d = createHalo3DController();
     scene.add(halo3d.root);
@@ -207,10 +241,29 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       }
     }
 
+    function applyThemeAndSkybox(
+      theme: EnvironmentTheme,
+      weather: WeatherMode,
+      tod: number,
+      skybox: SkyboxConfig,
+    ) {
+      const effectiveSky = skybox.enabled ? skybox : getDefaultSkyboxForTheme(theme, tod);
+      skyboxCtrl.mesh.visible = true;
+      skyboxCtrl.applyConfig(effectiveSky, renderer, scene, isSoftwareGl);
+      envCtrl.applyTheme(theme, weather, tod, true);
+    }
+
     syncAgents(propsRef.current.agents);
     syncPlayers(propsRef.current.worldPlayers, propsRef.current.selfPlayerId);
     envCtrl.syncWorldObjects(propsRef.current.worldObjects);
-    envCtrl.applyTheme(propsRef.current.theme, propsRef.current.weather, propsRef.current.timeOfDayHours);
+    worldPhysics.syncObjects(propsRef.current.worldObjects);
+    envCtrl.setSelectedObjectId(propsRef.current.selectedWorldObjectId);
+    applyThemeAndSkybox(
+      propsRef.current.theme,
+      propsRef.current.weather,
+      propsRef.current.timeOfDayHours,
+      propsRef.current.skybox,
+    );
     envCtrl.setPrototype(propsRef.current.prototypeKind, propsRef.current.prototypeColor, propsRef.current.prototypeMetalness);
 
     const syncHaloState = () => {
@@ -269,7 +322,7 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     };
     controls.addEventListener('start', onControlStart);
 
-    // Keyboard WASD / Arrow navigation on window
+    // Keyboard WASD / Arrow navigation + Q/E rotate held object
     const keys: Record<string, boolean> = {};
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -284,29 +337,160 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
 
-    // Pointer click raycasting on agents and neural core regions
+    // Unified Pointer + Touch-Hold Object Dragging & Raycast Selection
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     let pointerDownPos = { x: 0, y: 0 };
+    let holdTimer = 0;
+    let activeDragId: string | null = null;
+    let activeDragPos: [number, number, number] = [0, 0, 0];
+    let activeDragRotY = 0;
+    let dragOffset = new THREE.Vector3();
+
+    function updatePointerNdc(clientX: number, clientY: number) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+      pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    }
+
+    function beginDragObject(objId: string, hitPoint?: THREE.Vector3) {
+      const obj = propsRef.current.worldObjects.find((o) => o.id === objId);
+      if (!obj) return;
+      activeDragId = objId;
+      const supportY = worldPhysics.getBodyTopY(obj.position[0], obj.position[2], objId);
+      const liftY = Math.max(supportY + 0.4, (obj.position[1] ?? 0) + 0.35);
+      activeDragPos = [obj.position[0], liftY, obj.position[2]];
+      activeDragRotY = obj.rotationY;
+      if (hitPoint) {
+        dragOffset.set(obj.position[0] - hitPoint.x, 0, obj.position[2] - hitPoint.z);
+      } else {
+        dragOffset.set(0, 0, 0);
+      }
+      controls.enabled = false;
+      renderer.domElement.style.cursor = 'grabbing';
+      worldPhysics.beginDrag(objId);
+      worldPhysics.setDragTarget(objId, activeDragPos[0], activeDragPos[1], activeDragPos[2], activeDragRotY);
+      envCtrl.setDraggingObject(objId, activeDragPos, activeDragRotY);
+      propsRef.current.onSelectWorldObject?.(objId);
+      propsRef.current.onHoldStateChange?.(objId);
+      try {
+        navigator.vibrate?.(18);
+      } catch {
+        // Ignore on unsupported browsers
+      }
+    }
 
     const onPointerDown = (ev: PointerEvent) => {
       pointerDownPos = { x: ev.clientX, y: ev.clientY };
-    };
-    const onPointerUp = (ev: PointerEvent) => {
-      const moved = Math.hypot(ev.clientX - pointerDownPos.x, ev.clientY - pointerDownPos.y);
-      if (moved > 6) return; // Dragging camera, not clicking
+      clearTimeout(holdTimer);
 
-      const rect = renderer.domElement.getBoundingClientRect();
-      pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-      pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+      updatePointerNdc(ev.clientX, ev.clientY);
+      raycaster.setFromCamera(pointer, camera);
+      const objHits = raycaster.intersectObjects(envCtrl.worldObjectInteractables, false);
+      if (objHits.length > 0) {
+        const objId = objHits[0].object.userData.objectId as string | undefined;
+        if (objId) {
+          const planeOk = raycaster.ray.intersectPlane(_groundPlane, _planeHit);
+          const hitPt = planeOk ? _planeHit.clone() : undefined;
+
+          if (propsRef.current.objectDragMode || ev.shiftKey) {
+            beginDragObject(objId, hitPt);
+          } else {
+            // Touch-Hold / Long-Press (220ms) grabs any 3D object directly
+            holdTimer = window.setTimeout(() => {
+              beginDragObject(objId, hitPt);
+            }, 220);
+          }
+        }
+      }
+    };
+
+    const onPointerMove = (ev: PointerEvent) => {
+      const moved = Math.hypot(ev.clientX - pointerDownPos.x, ev.clientY - pointerDownPos.y);
+      if (!activeDragId && moved > 8) {
+        clearTimeout(holdTimer);
+      }
+
+      if (activeDragId) {
+        updatePointerNdc(ev.clientX, ev.clientY);
+        raycaster.setFromCamera(pointer, camera);
+        if (raycaster.ray.intersectPlane(_groundPlane, _planeHit)) {
+          let nx = _planeHit.x + dragOffset.x;
+          let nz = _planeHit.z + dragOffset.z;
+          if (propsRef.current.gridSnap) {
+            nx = Math.round(nx * 2) / 2;
+            nz = Math.round(nz * 2) / 2;
+          }
+          nx = Math.max(-36, Math.min(36, Number(nx.toFixed(2))));
+          nz = Math.max(-36, Math.min(36, Number(nz.toFixed(2))));
+          const supportY = worldPhysics.getBodyTopY(nx, nz, activeDragId);
+          const ny = Number((supportY + 0.42).toFixed(2));
+          activeDragPos = [nx, ny, nz];
+          worldPhysics.setDragTarget(activeDragId, nx, ny, nz, activeDragRotY);
+          envCtrl.setDraggingObject(activeDragId, activeDragPos, activeDragRotY);
+        }
+      }
+    };
+
+    const finishDragOrClick = (ev: PointerEvent) => {
+      clearTimeout(holdTimer);
+
+      if (activeDragId) {
+        const finishedId = activeDragId;
+        const finalPos = activeDragPos;
+        const finalRot = activeDragRotY;
+        activeDragId = null;
+        controls.enabled = true;
+        renderer.domElement.style.cursor = 'default';
+        worldPhysics.endDrag(finishedId);
+        envCtrl.setDraggingObject(null);
+        propsRef.current.onHoldStateChange?.(null);
+        propsRef.current.onMoveWorldObject?.(finishedId, finalPos, finalRot);
+        return;
+      }
+
+      const moved = Math.hypot(ev.clientX - pointerDownPos.x, ev.clientY - pointerDownPos.y);
+      if (moved > 6) return;
+
+      updatePointerNdc(ev.clientX, ev.clientY);
       raycaster.setFromCamera(pointer, camera);
 
-      const targets: THREE.Object3D[] = [...neuralCore.interactables, ...halo3d.interactables];
+      // Tap-to-Place mode drops a new prop with gravity (stacks onto existing props if tapped above them!)
+      if (propsRef.current.tapPlaceActive) {
+        const objHits = raycaster.intersectObjects(envCtrl.worldObjectInteractables, false);
+        if (objHits.length > 0) {
+          const pt = objHits[0].point;
+          const snap = propsRef.current.gridSnap;
+          const px = snap ? Math.round(pt.x * 2) / 2 : Number(pt.x.toFixed(2));
+          const pz = snap ? Math.round(pt.z * 2) / 2 : Number(pt.z.toFixed(2));
+          const supportY = worldPhysics.getBodyTopY(px, pz, null);
+          propsRef.current.onTapPlaceGround?.([px, Number((supportY + 0.85).toFixed(2)), pz]);
+          return;
+        }
+        if (raycaster.ray.intersectPlane(_groundPlane, _planeHit)) {
+          const snap = propsRef.current.gridSnap;
+          const px = snap ? Math.round(_planeHit.x * 2) / 2 : Number(_planeHit.x.toFixed(2));
+          const pz = snap ? Math.round(_planeHit.z * 2) / 2 : Number(_planeHit.z.toFixed(2));
+          if (Math.abs(px) <= 36 && Math.abs(pz) <= 36) {
+            const supportY = worldPhysics.getBodyTopY(px, pz, null);
+            propsRef.current.onTapPlaceGround?.([px, Number((supportY + 0.85).toFixed(2)), pz]);
+            return;
+          }
+        }
+      }
+
+      const targets: THREE.Object3D[] = [
+        ...envCtrl.worldObjectInteractables,
+        ...neuralCore.interactables,
+        ...halo3d.interactables,
+      ];
       agentRigs.forEach((rig) => targets.push(rig.clickProxy));
       const hits = raycaster.intersectObjects(targets, false);
       if (hits.length > 0) {
         const data = hits[0].object.userData;
-        if (data.kind === 'agent' && data.agentId) {
+        if (data.kind === 'world-object' && data.objectId) {
+          propsRef.current.onSelectWorldObject?.(data.objectId);
+        } else if (data.kind === 'agent' && data.agentId) {
           propsRef.current.onSelectAgent(data.agentId);
         } else if (data.kind === 'neural-region' && data.regionId) {
           propsRef.current.onSelectRegion(data.regionId);
@@ -315,8 +499,11 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
         }
       }
     };
+
     renderer.domElement.addEventListener('pointerdown', onPointerDown);
-    renderer.domElement.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', finishDragOrClick);
+    window.addEventListener('pointercancel', finishDragOrClick);
 
     const onResize = () => {
       const w = container.clientWidth || window.innerWidth;
@@ -331,8 +518,28 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     sceneApiRef.current = {
       syncAgents,
       syncPlayers,
-      syncWorldObjects: (objects) => envCtrl.syncWorldObjects(objects),
-      applyTheme: (theme, weather, tod) => envCtrl.applyTheme(theme, weather, tod),
+      syncWorldObjects: (objects) => {
+        envCtrl.syncWorldObjects(objects);
+        worldPhysics.syncObjects(objects);
+      },
+      setSelectedWorldObject: (id) => envCtrl.setSelectedObjectId(id),
+      setGravityPreset: (preset) => worldPhysics.setGravityPreset(preset),
+      runPhysicsCommand: (cmd) => {
+        if (cmd.kind === 'drop' && cmd.objectId) {
+          worldPhysics.dropFromHeight(cmd.objectId, 3.0);
+        } else if (cmd.kind === 'nudge' && cmd.objectId) {
+          const angle = Math.random() * Math.PI * 2;
+          worldPhysics.applyImpulse(
+            cmd.objectId,
+            Math.cos(angle) * 3.4,
+            3.6,
+            Math.sin(angle) * 3.4,
+          );
+        } else {
+          worldPhysics.wakeAll();
+        }
+      },
+      applyThemeAndSkybox,
       setPrototype: (kind, color, metalness) => envCtrl.setPrototype(kind, color, metalness),
       triggerPulse: (sig) => {
         const rig = sig.fromAgentId ? agentRigs.get(sig.fromAgentId) : undefined;
@@ -385,6 +592,13 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       const delta = rawDelta * motionScale;
       const elapsed = ((nowMs - startMs) / 1000) * motionScale;
 
+      if (activeDragId) {
+        if (keys['KeyQ']) activeDragRotY += rawDelta * 1.8;
+        if (keys['KeyE']) activeDragRotY -= rawDelta * 1.8;
+        worldPhysics.setDragTarget(activeDragId, activeDragPos[0], activeDragPos[1], activeDragPos[2], activeDragRotY);
+        envCtrl.setDraggingObject(activeDragId, activeDragPos, activeDragRotY);
+      }
+
       // WASD / Arrow + Mobile Touch D-Pad movement
       const touch = propsRef.current.touchMoveVector;
       const moveSpeed = 6.5 * rawDelta;
@@ -428,6 +642,16 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
 
       controls.update();
 
+      // Step Cannon.js rigid-body physics (gravity, collisions, stacking)
+      const physStep = worldPhysics.step(rawDelta);
+      envCtrl.applyPhysicsPoses(physStep.poses);
+      if (physStep.newlySettled.length > 0) {
+        for (const settled of physStep.newlySettled) {
+          propsRef.current.onMoveWorldObject?.(settled.id, settled.position, settled.rotationY);
+        }
+      }
+
+      skyboxCtrl.update(elapsed);
       neuralCore.update(elapsed, delta, propsRef.current.regions);
       envCtrl.update(elapsed, delta, propsRef.current.weather);
       halo3d.update(elapsed, camera.position);
@@ -459,6 +683,7 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
 
     return () => {
       disposed = true;
+      clearTimeout(holdTimer);
       cancelAnimationFrame(frameId);
       clearTimeout(frameId);
       controls.removeEventListener('start', onControlStart);
@@ -466,16 +691,18 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', onResize);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
-      renderer.domElement.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', finishDragOrClick);
+      window.removeEventListener('pointercancel', finishDragOrClick);
 
       controls.dispose();
       neuralCore.dispose();
       halo3d.dispose();
+      skyboxCtrl.dispose();
       envCtrl.dispose();
       textures.dispose();
       agentRigs.forEach((rig) => rig.dispose());
       playerRigs.forEach((rig) => rig.dispose());
-      envTex.dispose();
       renderer.dispose();
       if (renderer.domElement.parentNode === container) {
         container.removeChild(renderer.domElement);
@@ -496,8 +723,29 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
   }, [props.worldObjects]);
 
   useEffect(() => {
-    sceneApiRef.current?.applyTheme(props.theme, props.weather, props.timeOfDayHours);
-  }, [props.theme, props.weather, props.timeOfDayHours]);
+    sceneApiRef.current?.setSelectedWorldObject(props.selectedWorldObjectId);
+  }, [props.selectedWorldObjectId]);
+
+  useEffect(() => {
+    if (props.gravityPreset) {
+      sceneApiRef.current?.setGravityPreset(props.gravityPreset);
+    }
+  }, [props.gravityPreset]);
+
+  useEffect(() => {
+    if (props.physicsCommand) {
+      sceneApiRef.current?.runPhysicsCommand(props.physicsCommand);
+    }
+  }, [props.physicsCommand]);
+
+  useEffect(() => {
+    sceneApiRef.current?.applyThemeAndSkybox(
+      props.theme,
+      props.weather,
+      props.timeOfDayHours,
+      props.skybox,
+    );
+  }, [props.theme, props.weather, props.timeOfDayHours, props.skybox]);
 
   useEffect(() => {
     sceneApiRef.current?.setPrototype(props.prototypeKind, props.prototypeColor, props.prototypeMetalness);

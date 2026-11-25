@@ -3,6 +3,7 @@ import * as THREE from 'three';
 export interface ProceduralTextureSet {
   floorAlbedo: THREE.CanvasTexture;
   floorBump: THREE.CanvasTexture;
+  floorRoughness: THREE.CanvasTexture;
   contactShadow: THREE.CanvasTexture;
   holoGrid: THREE.CanvasTexture;
   dispose: () => void;
@@ -18,18 +19,18 @@ export function createProceduralTextures(maxAnisotropy: number): ProceduralTextu
   actx.fillRect(0, 0, 512, 512);
 
   // Subtle brushed grain
-  for (let i = 0; i < 1800; i++) {
+  for (let i = 0; i < 2200; i++) {
     const x = (i * 73) % 512;
     const y = (i * 137) % 512;
-    const w = 12 + (i % 28);
-    actx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.08)';
+    const w = 14 + (i % 32);
+    actx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.022)' : 'rgba(0,0,0,0.09)';
     actx.fillRect(x, y, w, 1);
   }
-  // Precision tile seams
-  actx.strokeStyle = 'rgba(56, 189, 248, 0.14)';
+  // Precision tile seams + corner rivets
+  actx.strokeStyle = 'rgba(56, 189, 248, 0.16)';
   actx.lineWidth = 2;
   actx.strokeRect(2, 2, 508, 508);
-  actx.strokeStyle = 'rgba(148, 163, 184, 0.08)';
+  actx.strokeStyle = 'rgba(148, 163, 184, 0.09)';
   actx.lineWidth = 1;
   actx.beginPath();
   actx.moveTo(256, 0);
@@ -38,11 +39,26 @@ export function createProceduralTextures(maxAnisotropy: number): ProceduralTextu
   actx.lineTo(512, 256);
   actx.stroke();
 
+  actx.fillStyle = 'rgba(148, 163, 184, 0.16)';
+  for (const [rx, ry] of [
+    [14, 14],
+    [242, 14],
+    [270, 14],
+    [498, 14],
+    [14, 242],
+    [14, 270],
+    [498, 498],
+  ]) {
+    actx.beginPath();
+    actx.arc(rx, ry, 2.2, 0, Math.PI * 2);
+    actx.fill();
+  }
+
   const floorAlbedo = new THREE.CanvasTexture(albedoCanvas);
   floorAlbedo.colorSpace = THREE.SRGBColorSpace;
   floorAlbedo.wrapS = THREE.RepeatWrapping;
   floorAlbedo.wrapT = THREE.RepeatWrapping;
-  floorAlbedo.repeat.set(16, 16);
+  floorAlbedo.repeat.set(18, 18);
   floorAlbedo.anisotropy = maxAnisotropy;
 
   // 2. Floor Bump Map (Linear space)
@@ -52,7 +68,7 @@ export function createProceduralTextures(maxAnisotropy: number): ProceduralTextu
   const bctx = bumpCanvas.getContext('2d')!;
   bctx.fillStyle = '#808080';
   bctx.fillRect(0, 0, 256, 256);
-  bctx.strokeStyle = '#303030';
+  bctx.strokeStyle = '#282828';
   bctx.lineWidth = 3;
   bctx.strokeRect(1, 1, 254, 254);
   bctx.beginPath();
@@ -65,10 +81,32 @@ export function createProceduralTextures(maxAnisotropy: number): ProceduralTextu
   const floorBump = new THREE.CanvasTexture(bumpCanvas);
   floorBump.wrapS = THREE.RepeatWrapping;
   floorBump.wrapT = THREE.RepeatWrapping;
-  floorBump.repeat.set(16, 16);
+  floorBump.repeat.set(18, 18);
   floorBump.anisotropy = maxAnisotropy;
 
-  // 3. Soft Radial Contact Shadow Disc
+  // 3. Floor Micro-Roughness Map (Linear space — alternating brushed specular variation)
+  const roughCanvas = document.createElement('canvas');
+  roughCanvas.width = 256;
+  roughCanvas.height = 256;
+  const rctx = roughCanvas.getContext('2d')!;
+  rctx.fillStyle = '#888888';
+  rctx.fillRect(0, 0, 256, 256);
+  rctx.fillStyle = '#6c6c6c';
+  rctx.fillRect(0, 0, 128, 128);
+  rctx.fillRect(128, 128, 128, 128);
+  for (let i = 0; i < 650; i++) {
+    const x = (i * 53) % 256;
+    const y = (i * 97) % 256;
+    rctx.fillStyle = i % 3 === 0 ? '#555555' : '#9c9c9c';
+    rctx.fillRect(x, y, 16, 1);
+  }
+  const floorRoughness = new THREE.CanvasTexture(roughCanvas);
+  floorRoughness.wrapS = THREE.RepeatWrapping;
+  floorRoughness.wrapT = THREE.RepeatWrapping;
+  floorRoughness.repeat.set(18, 18);
+  floorRoughness.anisotropy = maxAnisotropy;
+
+  // 4. Soft Radial Contact Shadow Disc
   const shadowCanvas = document.createElement('canvas');
   shadowCanvas.width = 128;
   shadowCanvas.height = 128;
@@ -82,7 +120,7 @@ export function createProceduralTextures(maxAnisotropy: number): ProceduralTextu
 
   const contactShadow = new THREE.CanvasTexture(shadowCanvas);
 
-  // 4. Holographic Screen Grid Texture
+  // 5. Holographic Screen Grid Texture
   const holoCanvas = document.createElement('canvas');
   holoCanvas.width = 256;
   holoCanvas.height = 128;
@@ -103,7 +141,6 @@ export function createProceduralTextures(maxAnisotropy: number): ProceduralTextu
     hctx.lineTo(256, y);
     hctx.stroke();
   }
-  // Crisp waveform line
   hctx.strokeStyle = '#22D3EE';
   hctx.lineWidth = 2;
   hctx.beginPath();
@@ -121,11 +158,13 @@ export function createProceduralTextures(maxAnisotropy: number): ProceduralTextu
   return {
     floorAlbedo,
     floorBump,
+    floorRoughness,
     contactShadow,
     holoGrid,
     dispose: () => {
       floorAlbedo.dispose();
       floorBump.dispose();
+      floorRoughness.dispose();
       contactShadow.dispose();
       holoGrid.dispose();
     },

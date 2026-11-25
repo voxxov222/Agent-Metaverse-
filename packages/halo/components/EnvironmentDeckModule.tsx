@@ -47,6 +47,10 @@ export function EnvironmentDeckModule() {
             >
               <option value="command-center">Command Center</option>
               <option value="aether-district">Aether District</option>
+              <option value="cyber-metropolis">Cyber Metropolis (Hyper)</option>
+              <option value="orbital-station">Orbital Station (Hyper)</option>
+              <option value="alpine-observatory">Alpine Observatory (Hyper)</option>
+              <option value="bioluminescent-canyon">Bio-Lum Canyon (Hyper)</option>
               <option value="tech-office">Tech Office</option>
               <option value="outdoor-world">Outdoor World</option>
               <option value="neural-chamber">Neural Chamber</option>
@@ -129,6 +133,15 @@ export function EnvironmentDeckModule() {
               onChange={(e) => setPropKind(e.target.value as WorldPropKind)}
               className="bg-slate-950 border border-slate-700 rounded px-2 py-1"
             >
+              <option value="quantum-workstation">Real Triple-Screen OS Rig</option>
+              <option value="holo-terrain-table">Holo-Terrain Tactical Table</option>
+              <option value="holo-hud-terminal">Floating Holo-HUD Terminal</option>
+              <option value="mainframe-rack">Supercomputer Blade Rack</option>
+              <option value="arch-portal">Architectural Command Arch</option>
+              <option value="quantum-crate">Quantum Stack Crate</option>
+              <option value="media-screen">Animated Media Screen</option>
+              <option value="holo-billboard">Wide Holo Billboard</option>
+              <option value="kinetic-sculpture">Kinetic Sculpture</option>
               <option value="workstation-desk">Workstation Desk</option>
               <option value="holo-kiosk">Holo Kiosk</option>
               <option value="relay-beacon">Relay Beacon</option>

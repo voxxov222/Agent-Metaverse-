@@ -1,5 +1,7 @@
 import 'dotenv/config';
+import crypto from 'crypto';
 import express from 'express';
+import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -36,7 +38,8 @@ import {
   selectBestAgentForTask,
   validateExternalUrl,
 } from './src/utils/orchestratorLogic';
-import { buildImplementationRoadmap, WorldPresenceStore } from './src/server/worldPresence';
+import { buildImplementationRoadmap, MEDIA_STORAGE_DIR, WorldPresenceStore } from './src/server/worldPresence';
+import { validateMediaUpload } from './src/utils/worldEnhancements';
 import { KernelCommandBus, verifyAuditChain } from './src/server/kernelBus';
 import { createHaloCommand } from './packages/halo/commandBus';
 import type {
@@ -88,6 +91,7 @@ wss.on('connection', (ws) => {
       players: worldStore.getPlayerList(),
       objects: worldStore.objects,
       chat: worldStore.chat,
+      skybox: worldStore.skybox,
     } satisfies ServerWsEvent),
   );
   broadcast({ type: 'world:players', players: worldStore.getPlayerList() });
@@ -129,10 +133,18 @@ wss.on('connection', (ws) => {
         if (moved) {
           broadcast({ type: 'world:objects', objects: worldStore.objects });
         }
+      } else if (msg.type === 'world:update-object' && msg.id && msg.patch) {
+        const updated = worldStore.updateObject(msg.id, msg.patch);
+        if (updated) {
+          broadcast({ type: 'world:objects', objects: worldStore.objects });
+        }
       } else if (msg.type === 'world:remove-object' && msg.id) {
         if (worldStore.removeObject(msg.id)) {
           broadcast({ type: 'world:objects', objects: worldStore.objects });
         }
+      } else if (msg.type === 'world:skybox' && msg.skybox) {
+        const skybox = worldStore.setSkybox(msg.skybox);
+        broadcast({ type: 'world:skybox', skybox });
       } else if (msg.type === 'halo:cursor') {
         broadcast({
           type: 'halo:cursor',
@@ -191,6 +203,7 @@ app.get('/api/bootstrap', (_req, res) => {
     worldPlayers: worldStore.getPlayerList(),
     worldObjects: worldStore.objects,
     worldChat: worldStore.chat,
+    worldSkybox: worldStore.skybox,
     roadmap: buildImplementationRoadmap(store.integrations, isAdminClaimed(), isGeminiConfigured()),
     kernel: kernelBus.getSnapshot(),
   });
@@ -278,7 +291,76 @@ app.get('/api/world/state', (_req, res) => {
     players: worldStore.getPlayerList(),
     objects: worldStore.objects,
     chat: worldStore.chat,
+    skybox: worldStore.skybox,
   });
+});
+
+// Safe Local Media Upload & Static Serving for 3D Screens (Image, GIF, Video)
+app.post(
+  '/api/media/upload',
+  express.raw({ type: ['image/*', 'video/*'], limit: '20mb' }),
+  (req, res) => {
+    const contentType = String(req.headers['content-type'] || '');
+    const buf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    const check = validateMediaUpload({
+      mimeType: contentType,
+      byteLength: buf.byteLength,
+      originalName: String(req.headers['x-file-name'] || ''),
+    });
+    if (!check.valid || !check.ext || !check.mediaType) {
+      res.status(400).json({ error: check.reason || 'Invalid media upload.' });
+      return;
+    }
+
+    try {
+      if (!fs.existsSync(MEDIA_STORAGE_DIR)) {
+        fs.mkdirSync(MEDIA_STORAGE_DIR, { recursive: true });
+      }
+      const id = `media-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+      const filename = `${id}.${check.ext}`;
+      const targetPath = path.resolve(MEDIA_STORAGE_DIR, filename);
+      if (!targetPath.startsWith(MEDIA_STORAGE_DIR + path.sep)) {
+        res.status(400).json({ error: 'Invalid storage path.' });
+        return;
+      }
+      fs.writeFileSync(targetPath, buf);
+      res.json({
+        url: `/api/media/${filename}`,
+        filename,
+        mediaType: check.mediaType,
+        size: buf.byteLength,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to save uploaded media.' });
+    }
+  },
+);
+
+const EXT_CONTENT_TYPE: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.mp4': 'video/mp4',
+  '.webm': 'video/webm',
+};
+
+app.get('/api/media/:filename', (req, res) => {
+  const safeName = path.basename(String(req.params.filename || ''));
+  if (!/^[a-zA-Z0-9._-]+$/.test(safeName)) {
+    res.status(400).json({ error: 'Invalid media filename.' });
+    return;
+  }
+  const fullPath = path.resolve(MEDIA_STORAGE_DIR, safeName);
+  if (!fullPath.startsWith(MEDIA_STORAGE_DIR + path.sep) || !fs.existsSync(fullPath)) {
+    res.status(404).json({ error: 'Media asset not found.' });
+    return;
+  }
+  const ext = path.extname(safeName).toLowerCase();
+  res.setHeader('Content-Type', EXT_CONTENT_TYPE[ext] || 'application/octet-stream');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.sendFile(fullPath);
 });
 
 app.get('/api/roadmap', (_req, res) => {
