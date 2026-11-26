@@ -19,6 +19,7 @@ interface NeuralLinkPanelProps {
   neuralEventBus: EventTarget;
   onSendCommand: (prompt: string) => Promise<{ reply: string; tokens?: number; latencyMs?: number }>;
   onCreateProjectFromVoice: (objective: string) => Promise<void>;
+  onOpenLiveVoice?: () => void;
 }
 
 interface ChatBubble {
@@ -54,6 +55,7 @@ export function NeuralLinkPanel({
   neuralEventBus,
   onSendCommand,
   onCreateProjectFromVoice,
+  onOpenLiveVoice,
 }: NeuralLinkPanelProps) {
   const vizRef = useRef<NeuralNetworkVizHandle | null>(null);
   const [vizExpanded, setVizExpanded] = useState(false);
@@ -335,18 +337,29 @@ export function NeuralLinkPanel({
       >
         <div className="flex items-center justify-between text-xs text-slate-400">
           <label htmlFor="neural-link-input">Directive Input</label>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !autoSpeak;
-              setAutoSpeak(next);
-              if (!next) stopSpeaking();
-            }}
-            className="flex items-center gap-1.5 text-slate-300 hover:text-cyan-300 cursor-pointer"
-          >
-            {autoSpeak ? <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> : <VolumeX className="w-3.5 h-3.5" />}
-            <span>{autoSpeak ? 'Voice Reply On' : 'Voice Reply Off'}</span>
-          </button>
+          <div className="flex items-center gap-3">
+            {onOpenLiveVoice && (
+              <button
+                type="button"
+                onClick={onOpenLiveVoice}
+                className="text-emerald-300 hover:text-emerald-200 font-medium cursor-pointer"
+              >
+                2-Way Live Voice
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                const next = !autoSpeak;
+                setAutoSpeak(next);
+                if (!next) stopSpeaking();
+              }}
+              className="flex items-center gap-1.5 text-slate-300 hover:text-cyan-300 cursor-pointer"
+            >
+              {autoSpeak ? <Volume2 className="w-3.5 h-3.5 text-cyan-400" /> : <VolumeX className="w-3.5 h-3.5" />}
+              <span>{autoSpeak ? 'Voice Reply On' : 'Voice Reply Off'}</span>
+            </button>
+          </div>
         </div>
 
         <div className="flex items-center gap-2">

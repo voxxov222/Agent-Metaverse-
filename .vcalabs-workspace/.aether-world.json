@@ -58,19 +58,19 @@
     {
       "id": "prop-holo-wall-north",
       "kind": "media-screen",
-      "label": "Orbital Telemetry Display",
+      "label": "JARVIS Command Telemetry",
       "position": [
         -5.8,
         0,
         -6.5
       ],
       "rotationY": 0.45,
-      "color": "#22d3ee",
+      "color": "#00d2ff",
       "ownerCallsign": "Architect-Root",
       "motion": "static",
       "scale": 1,
       "mediaType": "procedural",
-      "screenPreset": "waveform",
+      "screenPreset": "jarvis-core",
       "createdAt": 1795618956692,
       "updatedAt": 1795618956692
     },
@@ -89,7 +89,7 @@
       "motion": "static",
       "scale": 1,
       "createdAt": 1795618956692,
-      "updatedAt": 1795623786712
+      "updatedAt": 1795689525775
     },
     {
       "id": "prop-rig-west",
@@ -158,10 +158,11 @@
       "ownerCallsign": "Architect-Root",
       "motion": "static",
       "scale": 1,
-      "mediaType": "procedural",
+      "mediaType": "image",
       "screenPreset": "virtual-os",
       "createdAt": 1795618956692,
-      "updatedAt": 1795618956692
+      "updatedAt": 1795690103770,
+      "mediaUrl": "/api/media/media-mwxfivax-e9b18ec2.png"
     },
     {
       "id": "prop-arch-north",
@@ -179,6 +180,45 @@
       "scale": 1,
       "createdAt": 1795618956692,
       "updatedAt": 1795618956692
+    },
+    {
+      "id": "prop-1795690119894-z71",
+      "kind": "media-screen",
+      "label": "Holo Media Display",
+      "position": [
+        3.5,
+        0,
+        6
+      ],
+      "rotationY": 0,
+      "color": "#22d3ee",
+      "ownerCallsign": "Operator-01",
+      "motion": "static",
+      "scale": 1,
+      "mediaType": "procedural",
+      "screenPreset": "waveform",
+      "createdAt": 1795690120302,
+      "updatedAt": 1795690136190
+    },
+    {
+      "id": "prop-1795690143059-k4a",
+      "kind": "media-screen",
+      "label": "dichhnq-5a005114-aa93-4345-b",
+      "position": [
+        3,
+        0,
+        4
+      ],
+      "rotationY": 0,
+      "color": "#22d3ee",
+      "ownerCallsign": "Operator-01",
+      "motion": "static",
+      "scale": 1,
+      "mediaUrl": "/api/media/media-mwxfjpzt-f1ab8edd.gif",
+      "mediaType": "gif",
+      "screenPreset": "waveform",
+      "createdAt": 1795690143406,
+      "updatedAt": 1795690143406
     }
   ],
   "skybox": {

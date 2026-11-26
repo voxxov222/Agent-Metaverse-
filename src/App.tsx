@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, X, Wifi, WifiOff, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Move, Crosshair } from 'lucide-react';
+import { ChevronDown, ChevronUp, X, Wifi, WifiOff, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Move, Crosshair, Volume2, VolumeX } from 'lucide-react';
 import { CommandViewport3D, type PulseSignal } from './components/CommandViewport3D';
 import { NeuralLinkPanel } from './components/panels/NeuralLinkPanel';
 import { AgentStudioPanel } from './components/panels/AgentStudioPanel';
@@ -10,9 +10,11 @@ import { IntegrationsGovernancePanel } from './components/panels/IntegrationsGov
 import { MemorySecurityPrototypePanel } from './components/panels/MemorySecurityPrototypePanel';
 import { WorldRoadmapPanel } from './components/panels/WorldRoadmapPanel';
 import { JarvisCommandDeck } from './components/panels/JarvisCommandDeck';
+import { LiveVoicePanel } from './components/panels/LiveVoicePanel';
 import { JarvisOrbHud } from './components/JarvisOrbHud';
 import { MayaAdminWorkstation } from './components/workstation/MayaAdminWorkstation';
 import { ZimHandCamOverlay } from './components/ZimHandCamOverlay';
+import { VcaOsDesktop } from './components/VcaOsDesktop';
 import type { ZimTrackingFrame } from './utils/zimHandTracker';
 import type { PrototypeKind } from './scene/environments';
 import {
@@ -40,6 +42,7 @@ import {
 import { reconcileOfflineQueue } from './utils/orchestratorLogic';
 import { DEFAULT_SKYBOX_CONFIG, ENVIRONMENT_THEME_OPTIONS } from './utils/worldEnhancements';
 import { computeCognitiveFocusState } from './utils/jarvisOperationsLogic';
+import { speakAsJarvis } from './utils/voiceEngine';
 import type { JarvisDomainLogEntry, JarvisStateSnapshot, NetworkTopologySnapshot } from './server/jarvisCommandEngine';
 import type { HostWorkstationMetrics } from './server/workstationMetrics';
 import type {
@@ -110,6 +113,8 @@ export default function App() {
   const handDriverRef = useRef<((frame: ZimTrackingFrame) => void) | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const [spatialAudioEnabled, setSpatialAudioEnabled] = useState(true);
+  const [jarvisAutoSpeak, setJarvisAutoSpeak] = useState(true);
   const [latestPulse, setLatestPulse] = useState<PulseSignal | null>(null);
 
   // 3D Prototype Pedestal State
@@ -884,6 +889,18 @@ export default function App() {
     const data = await res.json();
     if (res.ok && data.state) {
       applyJarvisStateSnapshot(data.state);
+      if (jarvisAutoSpeak && data.entry?.reply) {
+        speakAsJarvis(data.entry.reply, {
+          onStart: () => {
+            setJarvisOrbState('speaking');
+            setJarvisOrbLabel('VOICE // ZENITH');
+          },
+          onEnd: () => {
+            setJarvisOrbState('idle');
+            setJarvisOrbLabel('IDLE // READY');
+          },
+        });
+      }
     }
   }
 
@@ -936,6 +953,8 @@ export default function App() {
     security: 'Security Governance, Vault & Offline Sync',
     prototype: '3D Holographic Prototype Studio',
     world: 'Aether World M1, Multiplayer & Roadmap',
+    'live-voice': 'Two-Way Live Voice · gemini-3.8-live',
+    vcaos: 'VCAOS // Multi-Environment Agent OS',
   };
 
   return (
@@ -1025,6 +1044,7 @@ export default function App() {
         pendingApprovalsCount={pendingApprovalsCount}
         runningTasksCount={runningTasksCount}
         jarvisHologram={jarvisHologram}
+        spatialAudioEnabled={spatialAudioEnabled}
         onClickHaloPanel={(moduleId) => {
           haloStore.setState({ isOpen: true, activeModule: moduleId, glitchPulseAt: Date.now() });
         }}
@@ -1048,11 +1068,13 @@ export default function App() {
           VCALABS
         </button>
 
-        {/* Zone 2: 6 concise single-line module links */}
-        <nav aria-label="Operating System Modules" className="hidden md:flex items-center gap-6 text-sm font-medium text-slate-300">
+        {/* Zone 2: Concise single-line module links */}
+        <nav aria-label="Operating System Modules" className="hidden md:flex items-center gap-5 text-sm font-medium text-slate-300">
           {(
             [
+              ['vcaos', 'VCAOS'],
               ['jarvis', 'JARVIS'],
+              ['live-voice', 'Live Voice'],
               ['neural-link', 'Neural Link'],
               ['agents', 'Agents'],
               ['projects', 'Projects'],
@@ -1101,7 +1123,9 @@ export default function App() {
       <div className="fixed top-14 inset-x-0 z-20 flex md:hidden items-center gap-2 px-3 py-1.5 bg-[#0A0F1A]/92 border-b border-slate-800 overflow-x-auto">
         {(
           [
+            ['vcaos', 'VCAOS'],
             ['jarvis', 'JARVIS'],
+            ['live-voice', 'Live Voice'],
             ['neural-link', 'Neural Link'],
             ['agents', 'Agents'],
             ['projects', 'Projects'],
@@ -1125,8 +1149,35 @@ export default function App() {
         ))}
       </div>
 
+      {/* Dedicated Full-Section VCAOS (YukiOS Multi-Environment OS) */}
+      <VcaOsDesktop
+        open={activePanel === 'vcaos'}
+        onClose={() => setActivePanel(null)}
+        agents={agents}
+        projects={projects}
+        regions={regions}
+        telemetry={telemetry}
+        theme={theme}
+        weather={weather}
+        cameraMode={cameraMode}
+        handCamOpen={handCamOpen}
+        isOffline={isOffline}
+        onChangeTheme={setTheme}
+        onChangeWeather={setWeather}
+        onChangeCameraMode={setCameraMode}
+        onToggleHandCam={() => setHandCamOpen((prev) => !prev)}
+        onFocusAgentIn3D={(agentId) => {
+          setSelectedAgentId(agentId);
+          setCameraMode('agent-focus');
+        }}
+        onUpdateAgent={handleUpdateAgent}
+        onChatWithAgent={handleChatWithAgent}
+        onCreateProject={handleCreateProject}
+        onApproveTask={handleApproveProjectTask}
+      />
+
       {/* Sliding OS Workstation Drawer (Right Side, leaving central 3D Core visible) */}
-      {activePanel && (
+      {activePanel && activePanel !== 'vcaos' && (
         <aside
           aria-label={panelTitleMap[activePanel]}
           className="fixed top-16 right-4 bottom-20 z-30 w-[min(520px,calc(100vw-2rem))] bg-[#0B101C]/96 border border-slate-800 rounded-xl shadow-2xl flex flex-col overflow-hidden"
@@ -1157,6 +1208,9 @@ export default function App() {
                 domainLog={jarvisLog}
                 biometrics={jarvisBiometrics}
                 isOffline={isOffline}
+                autoSpeak={jarvisAutoSpeak}
+                callsign={callsign}
+                onToggleAutoSpeak={() => setJarvisAutoSpeak((prev) => !prev)}
                 onDispatch={handleJarvisDispatch}
                 onUpdateHologram={handleJarvisHologram}
                 onCreateReminder={handleJarvisCreateReminder}
@@ -1166,6 +1220,23 @@ export default function App() {
                   if (lbl) setJarvisOrbLabel(lbl);
                 }}
                 onFocusCoreIn3D={() => setCameraMode('core-focus')}
+                onOpenLiveVoice={() => setActivePanel('live-voice')}
+              />
+            )}
+
+            {activePanel === 'live-voice' && (
+              <LiveVoicePanel
+                agents={agents}
+                selectedAgentId={selectedAgentId}
+                geminiConfigured={geminiConfigured}
+                isOffline={isOffline}
+                onSyncOrbState={(st, lbl) => {
+                  setJarvisOrbState(st);
+                  if (lbl) setJarvisOrbLabel(lbl);
+                }}
+                onLivePulse={() =>
+                  setLatestPulse({ id: Date.now(), regionId: 'reasoning-cortex' })
+                }
               />
             )}
 
@@ -1179,6 +1250,7 @@ export default function App() {
                 neuralEventBus={neuralEventBus}
                 onSendCommand={handleSendCentralCommand}
                 onCreateProjectFromVoice={handleCreateProject}
+                onOpenLiveVoice={() => setActivePanel('live-voice')}
               />
             )}
 
@@ -1448,7 +1520,7 @@ export default function App() {
 
       {/* Collapsible Bottom Control Dock (hidden while full-screen Flat/Shared HALO HUD is open) */}
       {!(haloIsOpen && (haloFormFactor === 'flat' || haloFormFactor === 'shared')) && (
-      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-[min(1410px,98vw)] w-full pointer-events-none">
+      <div className="fixed bottom-3 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center max-w-[min(1420px,98vw)] w-fit pointer-events-none">
         <button
           type="button"
           onClick={() => setDockCollapsed((prev) => !prev)}
@@ -1459,9 +1531,9 @@ export default function App() {
         </button>
 
         {!dockCollapsed && (
-          <div className="pointer-events-auto w-full bg-[#0B101C]/94 border border-slate-800 rounded-xl px-2.5 py-1.5 flex flex-wrap xl:flex-nowrap items-center justify-between gap-1.5 text-xs shadow-xl">
+          <div className="pointer-events-auto w-full bg-[#0B101C]/94 border border-slate-800 rounded-xl px-2 py-1.5 flex flex-wrap items-center justify-center gap-1.5 text-xs shadow-xl">
             {/* Environment Theme */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
               <label htmlFor="env-theme-select" className="text-slate-400 whitespace-nowrap">
                 Scene
               </label>
@@ -1470,7 +1542,7 @@ export default function App() {
                 aria-label="Environment"
                 value={theme}
                 onChange={(e) => setTheme(e.target.value as EnvironmentTheme)}
-                className="bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-slate-100"
+                className="max-w-[130px] bg-slate-950 border border-slate-700 rounded-md px-1.5 py-1 text-slate-100 truncate"
               >
                 {ENVIRONMENT_THEME_OPTIONS.map((opt) => (
                   <option key={opt.id} value={opt.id}>
@@ -1493,7 +1565,7 @@ export default function App() {
                   key={m}
                   type="button"
                   onClick={() => setCameraMode(m)}
-                  className={`px-2 py-1 rounded text-[11px] whitespace-nowrap cursor-pointer ${
+                  className={`px-1.5 py-1 rounded text-[11px] whitespace-nowrap cursor-pointer ${
                     cameraMode === m ? 'bg-cyan-500/20 text-cyan-200' : 'text-slate-400 hover:text-slate-200'
                   }`}
                 >
@@ -1503,7 +1575,7 @@ export default function App() {
             </div>
 
             {/* Weather & Time */}
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1 shrink-0">
               <label htmlFor="weather-select" className="text-slate-400">
                 Weather
               </label>
@@ -1511,7 +1583,7 @@ export default function App() {
                 id="weather-select"
                 value={weather}
                 onChange={(e) => setWeather(e.target.value as WeatherMode)}
-                className="bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-slate-100"
+                className="bg-slate-950 border border-slate-700 rounded-md px-1.5 py-1 text-slate-100"
               >
                 <option value="clear">Clear</option>
                 <option value="rain">Rain</option>
@@ -1525,16 +1597,16 @@ export default function App() {
                 step="1"
                 value={timeOfDayHours}
                 onChange={(e) => setTimeOfDayHours(Number(e.target.value))}
-                className="w-14 accent-cyan-400"
+                className="w-10 accent-cyan-400"
               />
             </div>
 
-            {/* Quick OS Modules & Offline / Motion Toggles */}
-            <div className="flex flex-wrap xl:flex-nowrap items-center gap-1">
+            {/* Quick OS Modules & Offline / Audio / Motion Toggles */}
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 type="button"
                 onClick={() => setWorkstationOpen((prev) => !prev)}
-                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap font-semibold cursor-pointer ${
+                className={`px-1.5 py-1 rounded border text-[11px] whitespace-nowrap font-semibold cursor-pointer ${
                   workstationOpen
                     ? 'bg-[#00c8ff] border-[#00ffff] text-slate-950'
                     : 'bg-[#003264]/50 border-[#00c8ff]/60 text-[#00e5ff] hover:border-[#00ffff]'
@@ -1572,7 +1644,7 @@ export default function App() {
                   setObjectDragMode((prev) => !prev);
                   setTapPlaceActive(false);
                 }}
-                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                className={`px-1.5 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
                   objectDragMode
                     ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
                     : 'bg-slate-950 border-slate-800 text-slate-300'
@@ -1585,7 +1657,7 @@ export default function App() {
                 type="button"
                 aria-label="Toggle ZIM-Cam Hand Tracking"
                 onClick={() => setHandCamOpen((prev) => !prev)}
-                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                className={`px-1.5 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
                   handCamOpen
                     ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
                     : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
@@ -1597,13 +1669,13 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => haloStore.setState((prev) => ({ ...prev, wristOpen: !prev.wristOpen }))}
-                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                className={`px-1.5 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
                   haloWristOpen
                     ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
                     : 'bg-slate-950 border-slate-800 text-slate-300'
                 }`}
               >
-                Wrist (Tab)
+                Wrist
               </button>
 
               <button
@@ -1613,7 +1685,7 @@ export default function App() {
                   haloStore.updateLayout({ formFactor: next });
                   if (!haloIsOpen) haloStore.setState({ isOpen: true });
                 }}
-                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                className={`px-1.5 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
                   haloFormFactor === 'dome'
                     ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
                     : 'bg-slate-950 border-slate-800 text-slate-300'
@@ -1626,7 +1698,7 @@ export default function App() {
                 type="button"
                 aria-label="Toggle offline mode"
                 onClick={() => setSimulatedOffline((prev) => !prev)}
-                className={`px-2 py-1 rounded border text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer ${
+                className={`px-1.5 py-1 rounded border text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer ${
                   isOffline
                     ? 'bg-amber-500/20 border-amber-400/60 text-amber-200'
                     : 'bg-slate-950 border-slate-800 text-slate-300'
@@ -1638,8 +1710,23 @@ export default function App() {
 
               <button
                 type="button"
+                aria-label="Toggle Spatial Audio"
+                aria-pressed={spatialAudioEnabled}
+                onClick={() => setSpatialAudioEnabled((prev) => !prev)}
+                className={`px-1.5 py-1 rounded border text-[11px] flex items-center gap-1 whitespace-nowrap cursor-pointer ${
+                  spatialAudioEnabled
+                    ? 'bg-cyan-500/20 border-cyan-400/60 text-cyan-200'
+                    : 'bg-slate-950 border-slate-800 text-slate-400'
+                }`}
+              >
+                {spatialAudioEnabled ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
+                <span>{spatialAudioEnabled ? 'Audio' : 'Muted'}</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setReducedMotion((prev) => !prev)}
-                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                className={`px-1.5 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
                   reducedMotion
                     ? 'bg-slate-800 border-cyan-400/60 text-cyan-200'
                     : 'bg-slate-950 border-slate-800 text-slate-400'

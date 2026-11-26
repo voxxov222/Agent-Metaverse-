@@ -45,6 +45,9 @@ import { JarvisOperationsEngine } from './src/server/jarvisCommandEngine';
 import { validateMediaUpload } from './src/utils/worldEnhancements';
 import { KernelCommandBus, verifyAuditChain } from './src/server/kernelBus';
 import { createHaloCommand } from './packages/halo/commandBus';
+import { VcaOsBackendService } from './src/server/vcaOsService';
+import { createLiveKitParticipantToken, getLiveKitVoiceConfig } from './src/server/livekitVoiceService';
+import { attachGeminiLiveSession } from './src/server/geminiLiveBridge';
 import type {
   AgentProfile,
   ClientWsEvent,
@@ -62,11 +65,28 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server, path: '/ws' });
+const wss = new WebSocketServer({ noServer: true });
+const liveWss = new WebSocketServer({ noServer: true });
+
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url || '/', 'http://localhost').pathname;
+  if (pathname === '/ws') {
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  } else if (pathname === '/live') {
+    liveWss.handleUpgrade(request, socket, head, (ws) => {
+      liveWss.emit('connection', ws, request);
+    });
+  } else {
+    socket.destroy();
+  }
+});
 const store = new OsStateStore();
 const worldStore = new WorldPresenceStore();
 const kernelBus = new KernelCommandBus(store, worldStore);
 const jarvisEngine = new JarvisOperationsEngine(store);
+const vcaOsService = new VcaOsBackendService();
 
 ensureSandboxInitialized();
 
@@ -177,6 +197,10 @@ wss.on('connection', (ws) => {
       broadcast({ type: 'world:players', players: worldStore.getPlayerList() });
     }
   });
+});
+
+liveWss.on('connection', (ws) => {
+  attachGeminiLiveSession(ws, store);
 });
 
 // Real-time telemetry interval (only sends measured host & AI gateway stats)
@@ -335,6 +359,32 @@ app.delete('/api/jarvis/reminders/:id', (req, res) => {
     return;
   }
   res.json({ ok: true, state: jarvisEngine.getSnapshot() });
+});
+
+app.get('/api/jarvis/voice/config', (_req, res) => {
+  res.json(getLiveKitVoiceConfig());
+});
+
+app.post('/api/jarvis/voice/token', (req, res) => {
+  const cfg = getLiveKitVoiceConfig();
+  if (!cfg.configured) {
+    res.status(400).json({ error: cfg.reason || 'LiveKit is not configured.', config: cfg });
+    return;
+  }
+  const { roomName, participantIdentity, participantName } = req.body ?? {};
+  try {
+    const issued = createLiveKitParticipantToken({
+      roomName: typeof roomName === 'string' && roomName.trim() ? roomName.trim() : 'vca-jarvis-voice',
+      participantIdentity:
+        typeof participantIdentity === 'string' && participantIdentity.trim()
+          ? participantIdentity.trim()
+          : `operator-${Date.now().toString(36)}`,
+      participantName: typeof participantName === 'string' ? participantName : undefined,
+    });
+    res.json(issued);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to create LiveKit token.' });
+  }
 });
 
 app.get('/api/kernel/state', (_req, res) => {
@@ -1108,6 +1158,43 @@ app.post('/api/terminal/exec', async (req, res) => {
     latencyMs: result.durationMs,
   });
   res.json(result);
+});
+
+// VCAOS (YukiOS Clone) Persistent OS State, Workspace & Config VFS
+app.get('/api/vcaos/state', (_req, res) => {
+  res.json(vcaOsService.getSnapshot());
+});
+
+app.post('/api/vcaos/state', (req, res) => {
+  const { mode, activeWorkspace, tilingConfig } = req.body ?? {};
+  const next = vcaOsService.updateState({ mode, activeWorkspace, tilingConfig });
+  store.pulseRegion('tool-bus', `VCAOS: ${next.mode} WS-${next.activeWorkspace}`);
+  res.json(next);
+});
+
+app.post('/api/vcaos/vfs', (req, res) => {
+  const { path: relPath, content } = req.body ?? {};
+  if (typeof relPath !== 'string' || typeof content !== 'string') {
+    res.status(400).json({ error: 'path and content strings are required.' });
+    return;
+  }
+  try {
+    const next = vcaOsService.upsertVfsNode(relPath, content);
+    store.pulseRegion('memory-lattice', `VCAOS VFS saved ${relPath}`);
+    res.json(next);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to write VFS node.' });
+  }
+});
+
+app.delete('/api/vcaos/vfs', (req, res) => {
+  const relPath = String(req.query.path || '');
+  try {
+    const next = vcaOsService.deleteVfsNode(relPath);
+    res.json(next);
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Unable to delete VFS node.' });
+  }
 });
 
 // Web Intelligence (SSRF-guarded URL Fetch + Gemini Grounded Research)

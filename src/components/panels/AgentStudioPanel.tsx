@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Plus, Send, Volume2, Sliders, Shield } from 'lucide-react';
+import { Activity, Bot, Plus, Send, Volume2, Sliders, Shield } from 'lucide-react';
 import type { AgentProfile, AutonomyLevel } from '../../types/os';
 import { NeuralNetworkView, type NeuralNetworkVizHandle } from '../../viz';
 import { speakWithProfile } from '../../utils/voiceEngine';
+import {
+  appendAgentSparklineSample,
+  computeAgentThroughputMetrics,
+  type AgentSparklineHistoryMap,
+} from '../../utils/agentSparklines';
+import { AgentMetricsSparklineOverlay } from './AgentMetricsSparklineOverlay';
 
 interface AgentStudioPanelProps {
   agents: AgentProfile[];
@@ -31,6 +37,37 @@ export function AgentStudioPanel({
   const [chatMsg, setChatMsg] = useState('');
   const [chatLog, setChatLog] = useState<Array<{ from: string; text: string }>>([]);
   const [chatBusy, setChatBusy] = useState(false);
+  const [showMetricsOverlay, setShowMetricsOverlay] = useState(true);
+  const [overlayExpanded, setOverlayExpanded] = useState(false);
+  const [sparkHistory, setSparkHistory] = useState<AgentSparklineHistoryMap>({});
+  const prevMetricSampleRef = useRef<Record<string, { tokensUsed: number; timestamp: number }>>({});
+
+  // Track rolling tokens/sec & latency samples from AgentProfile.metrics
+  useEffect(() => {
+    const now = Date.now();
+    setSparkHistory((prev) => {
+      let next = prev;
+      for (const agent of agents) {
+        const prevSample = prevMetricSampleRef.current[agent.id] ?? null;
+        const derived = computeAgentThroughputMetrics(agent, prevSample, now);
+        next = appendAgentSparklineSample(
+          next,
+          agent,
+          {
+            timestamp: now,
+            tokensPerSec: derived.tokensPerSec,
+            latencyMs: derived.latencyMs,
+          },
+          20,
+        );
+        prevMetricSampleRef.current[agent.id] = {
+          tokensUsed: agent.metrics.tokensUsed,
+          timestamp: now,
+        };
+      }
+      return next;
+    });
+  }, [agents]);
 
   // Sync live agent status into the agent's holographic NeuralNetworkViz brain
   useEffect(() => {
@@ -153,35 +190,74 @@ export function AgentStudioPanel({
         </button>
       </div>
 
-      {/* Sub-Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-slate-900 rounded-lg border border-slate-800">
-        {(['interact', 'customize', 'permissions', 'create'] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-md capitalize transition-colors cursor-pointer ${
-              tab === t ? 'bg-slate-800 text-cyan-200' : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            {t === 'interact' ? 'Operate' : t === 'customize' ? '3D & Voice' : t === 'permissions' ? 'Autonomy' : 'Create'}
-          </button>
-        ))}
+      {/* Sub-Tabs & Metrics Sparkline Overlay Toggle */}
+      <div className="flex items-center gap-1.5">
+        <div className="flex-1 flex items-center gap-1 p-1 bg-slate-900 rounded-lg border border-slate-800">
+          {(['interact', 'customize', 'permissions', 'create'] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className={`flex-1 py-1.5 px-2 text-xs font-medium rounded-md capitalize transition-colors cursor-pointer ${
+                tab === t ? 'bg-slate-800 text-cyan-200' : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {t === 'interact' ? 'Operate' : t === 'customize' ? '3D & Voice' : t === 'permissions' ? 'Autonomy' : 'Create'}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          aria-label="Toggle Metrics Sparkline Overlay"
+          aria-pressed={showMetricsOverlay}
+          onClick={() => {
+            setShowMetricsOverlay((prev) => !prev);
+            setOverlayExpanded(false);
+          }}
+          className={`px-2.5 py-2 rounded-lg border text-[11px] font-medium flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors ${
+            showMetricsOverlay
+              ? 'bg-cyan-500/20 border-cyan-400/70 text-cyan-200'
+              : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          <span>Sparklines</span>
+        </button>
       </div>
+
+      {/* Main Studio Body (relative container for expandable Metrics Sparkline Visual Overlay) */}
+      <div className="relative flex-1 min-h-0 flex flex-col gap-3">
+        {showMetricsOverlay && (
+          <AgentMetricsSparklineOverlay
+            agents={agents}
+            selectedAgentId={activeAgent?.id ?? null}
+            history={sparkHistory}
+            expanded={overlayExpanded}
+            onToggleExpand={() => setOverlayExpanded((prev) => !prev)}
+            onClose={() => {
+              setShowMetricsOverlay(false);
+              setOverlayExpanded(false);
+            }}
+            onSelectAgent={(id) => {
+              onSelectAgent(id);
+              onFocusAgentIn3D(id);
+            }}
+          />
+        )}
 
       {/* Tab Content */}
       {tab === 'interact' && activeAgent && (
-        <div className="flex-1 min-h-0 flex flex-col gap-3">
-          <div className="border border-slate-800 bg-[#0F1524] rounded-lg p-3 text-xs space-y-1.5">
+        <div className="flex-1 min-h-0 flex flex-col gap-2.5">
+          <div className="border border-slate-800 bg-[#0F1524] rounded-lg p-2.5 text-xs space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="font-semibold text-sm text-slate-100">{activeAgent.name}</span>
               <span className="font-mono text-cyan-300">{activeAgent.autonomy}</span>
             </div>
-            <p className="text-slate-300">{activeAgent.personality}</p>
+            <p className="text-slate-300 truncate">{activeAgent.personality}</p>
             <div className="text-slate-400 font-mono tabular-nums">
               Completed: {activeAgent.metrics.tasksCompleted} · Tokens: {activeAgent.metrics.tokensUsed} · Latency: {activeAgent.metrics.avgLatencyMs}ms
             </div>
-            <div className="pt-1 flex items-center gap-2">
+            <div className="pt-0.5 flex items-center gap-2">
               <button
                 type="button"
                 onClick={() =>
@@ -206,7 +282,7 @@ export function AgentStudioPanel({
           </div>
 
           {/* Agent Cognitive Neural Mesh */}
-          <div className="h-28 rounded-lg border border-slate-800 overflow-hidden bg-[#05060f] shrink-0 relative">
+          <div className={`${showMetricsOverlay ? 'h-20' : 'h-28'} rounded-lg border border-slate-800 overflow-hidden bg-[#05060f] shrink-0 relative`}>
             <NeuralNetworkView
               ref={agentBrainRef}
               options={{ nodeCount: 72, seed: activeAgent.name.length * 97 + 13, enableBloom: false }}
@@ -579,6 +655,7 @@ export function AgentStudioPanel({
           </button>
         </form>
       )}
+      </div>
     </div>
   );
 }

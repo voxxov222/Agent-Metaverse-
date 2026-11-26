@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   Activity,
   BellPlus,
@@ -8,10 +8,14 @@ import {
   Mic,
   MicOff,
   Network,
+  Phone,
+  PhoneOff,
   Send,
   ShieldAlert,
   Sparkles,
   Trash2,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import type {
   JarvisDomainId,
@@ -23,7 +27,14 @@ import type {
 import type { JarvisDomainLogEntry, NetworkTopologySnapshot } from '../../server/jarvisCommandEngine';
 import type { HostWorkstationMetrics } from '../../server/workstationMetrics';
 import { JARVIS_DOMAINS, JARVIS_ORB_COLORS, type JarvisBiometricsState } from '../../utils/jarvisOperationsLogic';
-import { startVoiceRecognition, type VoiceListenerHandle } from '../../utils/voiceEngine';
+import { JARVIS_VOICE_CONFIG } from '../../utils/jarvisVoice';
+import {
+  LiveKitJarvisVoiceSession,
+  speakAsJarvis,
+  startVoiceRecognition,
+  stopSpeaking,
+  type VoiceListenerHandle,
+} from '../../utils/voiceEngine';
 
 interface JarvisCommandDeckProps {
   orbState: JarvisOrbState;
@@ -40,6 +51,9 @@ interface JarvisCommandDeckProps {
   domainLog: JarvisDomainLogEntry[];
   biometrics: JarvisBiometricsState;
   isOffline: boolean;
+  autoSpeak: boolean;
+  callsign: string;
+  onToggleAutoSpeak: () => void;
   onDispatch: (prompt: string, domain: JarvisDomainId) => Promise<void>;
   onUpdateHologram: (patch: {
     model?: JarvisHologramModelId;
@@ -51,6 +65,7 @@ interface JarvisCommandDeckProps {
   onDeleteReminder: (id: string) => Promise<void>;
   onSetOrbState: (state: JarvisOrbState, label?: string) => void;
   onFocusCoreIn3D: () => void;
+  onOpenLiveVoice?: () => void;
 }
 
 type DeckTab = 'swarm' | 'hologram' | 'biometrics';
@@ -65,12 +80,16 @@ export function JarvisCommandDeck({
   domainLog,
   biometrics,
   isOffline,
+  autoSpeak,
+  callsign,
+  onToggleAutoSpeak,
   onDispatch,
   onUpdateHologram,
   onCreateReminder,
   onDeleteReminder,
   onSetOrbState,
   onFocusCoreIn3D,
+  onOpenLiveVoice,
 }: JarvisCommandDeckProps) {
   const [tab, setTab] = useState<DeckTab>('swarm');
   const [domain, setDomain] = useState<JarvisDomainId>('core');
@@ -79,8 +98,104 @@ export function JarvisCommandDeck({
   const [listening, setListening] = useState(false);
   const [remTitle, setRemTitle] = useState('');
   const [remWhen, setRemWhen] = useState('in 15s');
+  const [livekitConfigured, setLivekitConfigured] = useState(false);
+  const [livekitStatus, setLivekitStatus] = useState<'idle' | 'connecting' | 'connected' | 'error'>('idle');
+  const [livekitNote, setLivekitNote] = useState<string>('');
+  const [voiceTranscript, setVoiceTranscript] = useState<string>('');
+  const livekitRef = useRef<LiveKitJarvisVoiceSession | null>(null);
 
   const orbMeta = JARVIS_ORB_COLORS[orbState] ?? JARVIS_ORB_COLORS.idle;
+
+  useEffect(() => {
+    let active = true;
+    async function loadVoiceConfig() {
+      if (isOffline) return;
+      try {
+        const res = await fetch('/api/jarvis/voice/config');
+        if (!res.ok || !active) return;
+        const cfg = (await res.json()) as { configured: boolean; reason?: string };
+        setLivekitConfigured(Boolean(cfg.configured));
+        if (!cfg.configured && cfg.reason) {
+          setLivekitNote(cfg.reason);
+        }
+      } catch {
+        // Offline or server unavailable
+      }
+    }
+    void loadVoiceConfig();
+    return () => {
+      active = false;
+      livekitRef.current?.disconnect();
+    };
+  }, [isOffline]);
+
+  function handlePlayGreeting() {
+    setVoiceTranscript(JARVIS_VOICE_CONFIG.greeting);
+    speakAsJarvis(JARVIS_VOICE_CONFIG.greeting, {
+      onStart: () => onSetOrbState('speaking', 'VOICE // ZENITH'),
+      onEnd: () => onSetOrbState('idle', 'IDLE // READY'),
+    });
+  }
+
+  async function handleToggleLiveKitVoice() {
+    if (livekitStatus === 'connected' || livekitStatus === 'connecting') {
+      livekitRef.current?.disconnect();
+      setLivekitStatus('idle');
+      onSetOrbState('idle', 'IDLE // READY');
+      return;
+    }
+
+    if (!livekitConfigured) {
+      handlePlayGreeting();
+      return;
+    }
+
+    setLivekitStatus('connecting');
+    onSetOrbState('thinking', 'RTC CONNECTING');
+    try {
+      const res = await fetch('/api/jarvis/voice/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          roomName: 'vca-jarvis-voice',
+          participantIdentity: callsign.toLowerCase().replace(/[^a-z0-9_-]/g, '-') || 'operator-01',
+          participantName: callsign,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.token || !data.wsUrl) {
+        throw new Error(data.error || 'Unable to acquire LiveKit session token.');
+      }
+      const session = new LiveKitJarvisVoiceSession();
+      livekitRef.current = session;
+      await session.connect(data.wsUrl, data.token, {
+        onStatusChange: (status, detail) => {
+          if (status === 'connected') {
+            setLivekitStatus('connected');
+            setLivekitNote(detail || '');
+            onSetOrbState('listening', 'LIVEKIT // ZENITH');
+          } else if (status === 'disconnected') {
+            setLivekitStatus('idle');
+            onSetOrbState('idle', 'IDLE // READY');
+          } else if (status === 'error') {
+            setLivekitStatus('error');
+            setLivekitNote(detail || 'LiveKit session error');
+            onSetOrbState('error', 'VOICE ALERT');
+          }
+        },
+        onAgentSpeakingChange: (speaking) => {
+          onSetOrbState(speaking ? 'speaking' : 'listening', speaking ? 'ZENITH SPEAKING' : 'LISTENING');
+        },
+        onTranscript: (text) => {
+          setVoiceTranscript(text);
+        },
+      });
+    } catch (err) {
+      setLivekitStatus('error');
+      setLivekitNote(err instanceof Error ? err.message : 'Unable to start LiveKit session.');
+      onSetOrbState('error', 'VOICE ALERT');
+    }
+  }
 
   async function handleSubmitPrompt(e: FormEvent) {
     e.preventDefault();
@@ -172,6 +287,85 @@ export function JarvisCommandDeck({
         <span className={`px-2 py-0.5 rounded border text-[10px] font-mono shrink-0 ${orbMeta.badgeClass}`}>
           {orbLabel || orbMeta.label}
         </span>
+      </div>
+
+      {/* JARVIS VOICE Realtime & Plain-Text Speech Strip */}
+      <div className="rounded-lg bg-slate-950/95 border border-cyan-500/30 px-2.5 py-2 space-y-1.5">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold text-cyan-200">
+            <span>JARVIS VOICE</span>
+            <span className="font-mono text-[10px] text-[#64ffda]">{JARVIS_VOICE_CONFIG.agentName}</span>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button
+              type="button"
+              aria-label="Toggle JARVIS Auto-Speak"
+              aria-pressed={autoSpeak}
+              onClick={() => {
+                if (autoSpeak) stopSpeaking();
+                onToggleAutoSpeak();
+              }}
+              className={`px-2 py-1 rounded border text-[10px] flex items-center gap-1 cursor-pointer ${
+                autoSpeak
+                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {autoSpeak ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
+              <span>{autoSpeak ? 'TTS On' : 'TTS Muted'}</span>
+            </button>
+            <button
+              type="button"
+              aria-label="Play JARVIS Greeting"
+              onClick={handlePlayGreeting}
+              className="px-2 py-1 rounded border border-slate-700 bg-slate-900 text-slate-200 hover:border-cyan-400 text-[10px] cursor-pointer"
+            >
+              Greet
+            </button>
+            <button
+              type="button"
+              aria-label="Connect JARVIS LiveKit Voice"
+              onClick={() => void handleToggleLiveKitVoice()}
+              disabled={isOffline}
+              className={`px-2 py-1 rounded border text-[10px] flex items-center gap-1 cursor-pointer disabled:opacity-50 ${
+                livekitStatus === 'connected'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200'
+                  : 'bg-[#00d2ff]/15 border-[#00d2ff]/60 text-[#00d2ff] hover:bg-[#00d2ff]/25'
+              }`}
+            >
+              {livekitStatus === 'connected' ? <PhoneOff className="w-3 h-3" /> : <Phone className="w-3 h-3" />}
+              <span>
+                {livekitStatus === 'connected'
+                  ? 'Disconnect RTC'
+                  : livekitStatus === 'connecting'
+                    ? 'Joining...'
+                    : livekitConfigured
+                      ? 'LiveKit RTC'
+                      : 'Voice Session'}
+              </span>
+            </button>
+            {onOpenLiveVoice && (
+              <button
+                type="button"
+                aria-label="Open Two-Way Gemini Live"
+                onClick={onOpenLiveVoice}
+                className="px-2 py-1 rounded border border-emerald-500/50 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25 text-[10px] cursor-pointer"
+              >
+                2-Way Live
+              </button>
+            )}
+          </div>
+        </div>
+        <div className="text-[10px] text-slate-400 font-mono">
+          {JARVIS_VOICE_CONFIG.model} · voice:{JARVIS_VOICE_CONFIG.voice} · {JARVIS_VOICE_CONFIG.enhancerModel}
+        </div>
+        {(voiceTranscript || (!livekitConfigured && livekitNote)) && (
+          <div className="text-[10px] text-slate-300 bg-[#0a192f]/80 border border-slate-800 rounded px-2 py-1 leading-snug">
+            {voiceTranscript
+              ? `Zenith: "${voiceTranscript}"`
+              : 'Local plain-text TTS & Web Speech mic active. Add LIVEKIT_URL + keys to bridge assistant-0ab worker.'}
+          </div>
+        )}
       </div>
 
       {/* 3 Sub-Tabs */}

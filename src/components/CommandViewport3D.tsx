@@ -25,6 +25,7 @@ import { createSkyboxController } from '../scene/skyboxCreator';
 import { WorldPhysicsEngine } from '../scene/worldPhysics';
 import { getDefaultSkyboxForTheme } from '../utils/worldEnhancements';
 import type { ZimTrackingFrame } from '../utils/zimHandTracker';
+import { SpatialAudioEngine } from '../utils/spatialAudioEngine';
 import { createHalo3DController } from '../../packages/halo/halo3d';
 import type {
   HaloFormFactor,
@@ -82,6 +83,8 @@ interface CommandViewport3DProps {
   pendingApprovalsCount: number;
   runningTasksCount: number;
   jarvisHologram?: JarvisHologramConfig;
+  spatialAudioEnabled?: boolean;
+  spatialAudioVolume?: number;
   onClickHaloPanel?: (moduleId: HaloModuleId, panelId: string) => void;
   onRegisterHandDriver?: (driver: ((frame: ZimTrackingFrame) => void) | null) => void;
 }
@@ -91,6 +94,8 @@ const _desiredTarget = new THREE.Vector3();
 const _forward = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _listenerForward = new THREE.Vector3();
+const _listenerUp = new THREE.Vector3(0, 1, 0);
 const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _planeHit = new THREE.Vector3();
 const _camOffset = new THREE.Vector3();
@@ -116,6 +121,7 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     setPrototype: (kind: PrototypeKind, color: string, metalness: number) => void;
     triggerPulse: (sig: PulseSignal) => void;
     setJarvisHologram: (cfg: JarvisHologramConfig) => void;
+    setSpatialAudio: (enabled: boolean, volume?: number) => void;
     setCameraGoal: (mode: CameraMode, agentId: string | null) => void;
     syncHalo: () => void;
   } | null>(null);
@@ -215,15 +221,30 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     const halo3d = createHalo3DController();
     scene.add(halo3d.root);
 
+    const spatialAudio = new SpatialAudioEngine(
+      propsRef.current.spatialAudioEnabled ?? true,
+      propsRef.current.spatialAudioVolume ?? 0.45,
+    );
+    const agentLastState = new Map<string, string>();
+    let initialAgentsSynced = false;
+
     const agentRigs = new Map<string, AgentVisualRig>();
     const agentGroupRoot = new THREE.Group();
     scene.add(agentGroupRoot);
 
     function syncAgents(agentList: AgentProfile[]) {
       const seen = new Set<string>();
-      for (const agent of agentList) {
+      for (let i = 0; i < agentList.length; i++) {
+        const agent = agentList[i];
         seen.add(agent.id);
         const existing = agentRigs.get(agent.id);
+        const stateSig = `${agent.status}|${agent.currentStage}`;
+        const prevSig = agentLastState.get(agent.id);
+        if (initialAgentsSynced && prevSig !== undefined && prevSig !== stateSig) {
+          spatialAudio.playAgentUpdate(agent.id, agent.status, agent.position, i);
+        }
+        agentLastState.set(agent.id, stateSig);
+
         if (existing) {
           existing.root.position.set(agent.position[0], 0, agent.position[2]);
           existing.root.lookAt(0, 0, 0);
@@ -234,11 +255,13 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
           agentGroupRoot.add(rig.root);
         }
       }
+      initialAgentsSynced = true;
       for (const [id, rig] of agentRigs.entries()) {
         if (!seen.has(id)) {
           agentGroupRoot.remove(rig.root);
           rig.dispose();
           agentRigs.delete(id);
+          agentLastState.delete(id);
         }
       }
     }
@@ -435,7 +458,16 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       }
     }
 
+    const unlockSpatialAudio = () => {
+      if (propsRef.current.spatialAudioEnabled !== false) {
+        void spatialAudio.unlock();
+      }
+    };
+    window.addEventListener('pointerdown', unlockSpatialAudio, { passive: true });
+    window.addEventListener('keydown', unlockSpatialAudio, { passive: true });
+
     const onPointerDown = (ev: PointerEvent) => {
+      unlockSpatialAudio();
       pointerDownPos = { x: ev.clientX, y: ev.clientY };
       clearTimeout(holdTimer);
 
@@ -721,9 +753,17 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       triggerPulse: (sig) => {
         const rig = sig.fromAgentId ? agentRigs.get(sig.fromAgentId) : undefined;
         neuralCore.triggerPulse(sig.regionId, rig?.root.position);
+        spatialAudio.playPulse(
+          sig.regionId,
+          rig ? [rig.root.position.x, 1.4, rig.root.position.z] : undefined,
+        );
       },
       setJarvisHologram: (cfg) => {
         neuralCore.setHologramState(cfg);
+      },
+      setSpatialAudio: (enabled, volume) => {
+        spatialAudio.setEnabled(enabled);
+        if (typeof volume === 'number') spatialAudio.setVolume(volume);
       },
       setCameraGoal,
       syncHalo: syncHaloState,
@@ -850,6 +890,24 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
         }
       }
 
+      // Sync Web Audio 3D listener to camera position & orientation with zero per-frame allocations
+      if (propsRef.current.spatialAudioEnabled !== false) {
+        camera.getWorldDirection(_listenerForward);
+        _listenerUp.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+        spatialAudio.updateListener(
+          camera.position.x,
+          camera.position.y,
+          camera.position.z,
+          _listenerForward.x,
+          _listenerForward.y,
+          _listenerForward.z,
+          _listenerUp.x,
+          _listenerUp.y,
+          _listenerUp.z,
+          nowMs,
+        );
+      }
+
       renderer.render(scene, camera);
 
       if (isSoftwareGl) {
@@ -870,12 +928,15 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
       window.removeEventListener('resize', onResize);
+      window.removeEventListener('pointerdown', unlockSpatialAudio);
+      window.removeEventListener('keydown', unlockSpatialAudio);
       renderer.domElement.removeEventListener('pointerdown', onPointerDown);
       window.removeEventListener('pointermove', onPointerMove);
       window.removeEventListener('pointerup', finishDragOrClick);
       window.removeEventListener('pointercancel', finishDragOrClick);
 
       propsRef.current.onRegisterHandDriver?.(null);
+      spatialAudio.dispose();
       controls.dispose();
       neuralCore.dispose();
       halo3d.dispose();
@@ -946,6 +1007,13 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       sceneApiRef.current?.setJarvisHologram(props.jarvisHologram);
     }
   }, [props.jarvisHologram]);
+
+  useEffect(() => {
+    sceneApiRef.current?.setSpatialAudio(
+      props.spatialAudioEnabled ?? true,
+      props.spatialAudioVolume ?? 0.45,
+    );
+  }, [props.spatialAudioEnabled, props.spatialAudioVolume]);
 
   useEffect(() => {
     sceneApiRef.current?.setCameraGoal(props.cameraMode, props.selectedAgentId);

@@ -266,11 +266,11 @@ export function createEnvironmentController(
     indoorGroup.add(trenchWrap);
   }
 
-  // Elevated Observation Mezzanine Catwalk Arcs (4 quadrant balconies at r=11.1, y=3.15)
-  const catwalkArcAngle = Math.PI * 0.24;
-  const catwalkDeckGeo = new THREE.CylinderGeometry(11.65, 11.65, 0.16, 20, 1, false, -catwalkArcAngle / 2, catwalkArcAngle);
-  const catwalkInnerCutGeo = new THREE.TorusGeometry(10.45, 0.06, 8, 24, catwalkArcAngle);
-  const catwalkRailTopGeo = new THREE.TorusGeometry(10.45, 0.035, 8, 24, catwalkArcAngle);
+  // Elevated Observation Mezzanine Catwalk Arcs (4 quadrant balconies at r=12.1, y=3.25)
+  const catwalkArcAngle = Math.PI * 0.22;
+  const catwalkDeckGeo = new THREE.CylinderGeometry(12.6, 12.6, 0.16, 20, 1, false, -catwalkArcAngle / 2, catwalkArcAngle);
+  const catwalkInnerCutGeo = new THREE.TorusGeometry(11.55, 0.06, 8, 24, catwalkArcAngle);
+  const catwalkRailTopGeo = new THREE.TorusGeometry(11.55, 0.035, 8, 24, catwalkArcAngle);
   const catwalkGlassShape = new THREE.Shape();
   catwalkGlassShape.moveTo(-2.1, 0);
   catwalkGlassShape.lineTo(2.1, 0);
@@ -289,7 +289,7 @@ export function createEnvironmentController(
     mezz.rotation.y = qAngle;
 
     // Extruded curved balcony deck slice
-    const deckRing = new THREE.RingGeometry(10.35, 12.15, 22, 1, -catwalkArcAngle / 2, catwalkArcAngle);
+    const deckRing = new THREE.RingGeometry(11.45, 13.15, 22, 1, -catwalkArcAngle / 2, catwalkArcAngle);
     const deckTop = new THREE.Mesh(deckRing, titaniumDarkMat);
     deckTop.rotation.x = -Math.PI / 2;
     deckTop.position.y = 3.24;
@@ -311,7 +311,7 @@ export function createEnvironmentController(
     railMid.position.y = 3.74;
 
     const glassPanel = new THREE.Mesh(catwalkGlassGeo, architecturalGlassMat);
-    glassPanel.position.set(10.46, 3.72, 0);
+    glassPanel.position.set(11.56, 3.72, 0);
     glassPanel.rotation.y = Math.PI / 2;
 
     mezz.add(deckTop, rimArc, railTop, railMid, glassPanel);
@@ -320,13 +320,13 @@ export function createEnvironmentController(
     // Cantilever brackets & handrail stanchions
     for (const sOffset of [-0.32, 0, 0.32]) {
       const sa = sOffset;
-      const sx = Math.cos(sa) * 10.45;
-      const sz = Math.sin(sa) * 10.45;
+      const sx = Math.cos(sa) * 11.55;
+      const sz = Math.sin(sa) * 11.55;
       const stanchion = new THREE.Mesh(stanchionGeo, chromeMat);
       stanchion.position.set(sx, 3.72, sz);
 
       const bracket = new THREE.Mesh(catwalkStrutGeo, brushedSteelMat);
-      bracket.position.set(Math.cos(sa) * 11.45, 3.02, Math.sin(sa) * 11.45);
+      bracket.position.set(Math.cos(sa) * 12.45, 3.02, Math.sin(sa) * 12.45);
       bracket.rotation.y = -sa + Math.PI / 2;
       bracket.rotation.x = 0.22;
       mezz.add(stanchion, bracket);
@@ -875,8 +875,116 @@ export function createEnvironmentController(
   root.add(motePoints);
   disposables.push(moteGeo, moteMat);
 
-  // Persistent Placed World Objects + Animated Screen Manager + Selection / Drag Gizmo
   const screenManager = new AnimatedScreenManager(maxAnisotropy, isSoftwareGl);
+
+  // 8. ADD-ON BIOME: VCAOS Matrix (YukiOS Shared-State Multi-DE Holo Workspace)
+  const vcaosGroup = new THREE.Group();
+  vcaosGroup.visible = false;
+
+  const vcaosPillarGeo = new THREE.BoxGeometry(0.62, 7.2, 0.85);
+  const vcaosBusGeo = new THREE.BoxGeometry(0.14, 6.4, 0.14);
+  const vcaosBusMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
+  const vcaosFrameGeo = new THREE.BoxGeometry(4.1, 2.45, 0.14);
+  const vcaosScreenGeo = new THREE.PlaneGeometry(3.84, 2.18);
+  const vcaosBezelTrimGeo = new THREE.BoxGeometry(4.2, 0.08, 0.18);
+  const vcaosWindowScreens = [
+    { id: 'vcaos-win-0', label: 'VCAOS // HYPRLAND BSP', preset: 'virtual-os' as const, color: '#38bdf8', angle: -Math.PI * 0.72, y: 3.15 },
+    { id: 'vcaos-win-1', label: 'VCAOS // KERNEL SHELL', preset: 'matrix' as const, color: '#a855f7', angle: -Math.PI * 0.32, y: 3.65 },
+    { id: 'vcaos-win-2', label: 'VCAOS // AGENT MATRIX', preset: 'neural-pulse' as const, color: '#34d399', angle: Math.PI * 0.18, y: 3.25 },
+    { id: 'vcaos-win-3', label: 'VCAOS // TELEMETRY BUS', preset: 'jarvis-core' as const, color: '#22d3ee', angle: Math.PI * 0.68, y: 3.55 },
+  ];
+
+  const vcaosWindows: THREE.Group[] = [];
+  vcaosWindowScreens.forEach((spec, idx) => {
+    const wg = new THREE.Group();
+    const r = 10.4;
+    wg.position.set(Math.cos(spec.angle) * r, spec.y, Math.sin(spec.angle) * r);
+    wg.lookAt(0, spec.y * 0.85, 0);
+
+    const frame = new THREE.Mesh(vcaosFrameGeo, titaniumDarkMat);
+    const topTrim = new THREE.Mesh(vcaosBezelTrimGeo, vcaosBusMat);
+    topTrim.position.y = 1.24;
+    const botTrim = new THREE.Mesh(vcaosBezelTrimGeo, vcaosBusMat);
+    botTrim.position.y = -1.24;
+
+    const tex = screenManager.getTexture({
+      objectId: spec.id,
+      label: spec.label,
+      color: spec.color,
+      mediaType: 'procedural',
+      screenPreset: spec.preset,
+    });
+    const scrMat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, side: THREE.DoubleSide });
+    const scr = new THREE.Mesh(vcaosScreenGeo, scrMat);
+    scr.position.z = 0.082;
+    const scrBack = new THREE.Mesh(vcaosScreenGeo, scrMat);
+    scrBack.position.z = -0.082;
+    scrBack.rotation.y = Math.PI;
+
+    wg.add(frame, topTrim, botTrim, scr, scrBack);
+    wg.userData = { baseY: spec.y, phase: idx * 1.35 };
+    vcaosWindows.push(wg);
+    vcaosGroup.add(wg);
+    disposables.push(scrMat);
+  });
+
+  // 8 Orbiting Workspace Beacons [WS 1..8] + Outer Kernel Bus Pillars (positioned cleanly overhead)
+  const vcaosBeaconRing = new THREE.Group();
+  vcaosBeaconRing.position.y = 8.6;
+  const beaconNodeGeo = new THREE.OctahedronGeometry(0.28, 0);
+  const beaconCollarGeo = new THREE.TorusGeometry(0.42, 0.03, 8, 24);
+  const beaconHaloGeo = new THREE.TorusGeometry(12.6, 0.04, 10, 72);
+  const beaconHalo = new THREE.Mesh(beaconHaloGeo, vcaosBusMat);
+  beaconHalo.rotation.x = Math.PI / 2;
+  vcaosBeaconRing.add(beaconHalo);
+
+  for (let w = 0; w < 8; w++) {
+    const wa = (w / 8) * Math.PI * 2 + Math.PI / 8;
+    const bx = Math.cos(wa) * 12.6;
+    const bz = Math.sin(wa) * 12.6;
+    const node = new THREE.Mesh(beaconNodeGeo, vcaosBusMat);
+    node.position.set(bx, 0, bz);
+    const collar = new THREE.Mesh(beaconCollarGeo, chromeMat);
+    collar.rotation.x = Math.PI / 2;
+    collar.position.set(bx, 0, bz);
+    vcaosBeaconRing.add(node, collar);
+  }
+  vcaosGroup.add(vcaosBeaconRing);
+
+  for (let k = 0; k < 8; k++) {
+    const ka = (k / 8) * Math.PI * 2 + Math.PI / 8;
+    const pillarWrap = new THREE.Group();
+    pillarWrap.position.set(Math.cos(ka) * 13.6, 0, Math.sin(ka) * 13.6);
+    pillarWrap.lookAt(0, 0, 0);
+    const pillar = new THREE.Mesh(vcaosPillarGeo, titaniumDarkMat);
+    pillar.position.y = 3.6;
+    const bus = new THREE.Mesh(vcaosBusGeo, vcaosBusMat);
+    bus.position.set(0, 3.6, 0.45);
+    pillarWrap.add(pillar, bus);
+    vcaosGroup.add(pillarWrap);
+  }
+
+  const vcaosDeckRingGeo = new THREE.RingGeometry(11.6, 11.95, 72);
+  const vcaosDeckRing = new THREE.Mesh(vcaosDeckRingGeo, gridRingMat);
+  vcaosDeckRing.rotation.x = -Math.PI / 2;
+  vcaosDeckRing.position.y = 0.03;
+  vcaosGroup.add(vcaosDeckRing);
+
+  root.add(vcaosGroup);
+  disposables.push(
+    vcaosPillarGeo,
+    vcaosBusGeo,
+    vcaosBusMat,
+    vcaosFrameGeo,
+    vcaosScreenGeo,
+    vcaosBezelTrimGeo,
+    beaconNodeGeo,
+    beaconCollarGeo,
+    beaconHaloGeo,
+    vcaosDeckRingGeo,
+  );
+
+  // Persistent Placed World Objects + Animated Screen Manager + Selection / Drag Gizmo
   const worldObjectsGroup = new THREE.Group();
   root.add(worldObjectsGroup);
   const worldObjectInteractables: THREE.Object3D[] = [];
@@ -1712,12 +1820,14 @@ export function createEnvironmentController(
       alpineGroup.visible = theme === 'alpine-observatory';
       cyberGroup.visible = theme === 'cyber-metropolis';
       canyonGroup.visible = theme === 'bioluminescent-canyon';
+      vcaosGroup.visible = theme === 'vcaos-nexus';
 
       volumetricGroup.visible =
         theme === 'command-center' ||
         theme === 'neural-chamber' ||
         theme === 'cyber-metropolis' ||
-        theme === 'bioluminescent-canyon';
+        theme === 'bioluminescent-canyon' ||
+        theme === 'vcaos-nexus';
 
       const normalizedHour = ((timeOfDayHours - 6) / 16) * Math.PI;
       const sunElevation = Math.max(-2, Math.min(10, Math.sin(normalizedHour) * 10 - 1));
@@ -1837,6 +1947,19 @@ export function createEnvironmentController(
         gridRingMat.color.setHex(0x10b981);
         moteMat.color.setHex(0x34d399);
         floorMat.color.setHex(0x94a3b8);
+      } else if (theme === 'vcaos-nexus') {
+        scene.background = new THREE.Color(0x050816);
+        scene.fog = new THREE.FogExp2(0x09112b, 0.017);
+        hemiLight.color.setHex(0x818cf8);
+        hemiLight.groundColor.setHex(0x060b19);
+        hemiLight.intensity = 1.05;
+        keyLight.color.setHex(0xe0f2fe);
+        keyLight.intensity = 2.25;
+        pylonLightMat.color.setHex(0x38bdf8);
+        gridRingMat.color.setHex(0x6366f1);
+        beamMat.color.setHex(0x6366f1);
+        moteMat.color.setHex(0x38bdf8);
+        floorMat.color.setHex(0x94a3b8);
       } else {
         scene.background = new THREE.Color(0x070b14);
         scene.fog = new THREE.FogExp2(0x070b14, 0.019);
@@ -1865,9 +1988,18 @@ export function createEnvironmentController(
       if (cyberGroup.visible) {
         trainOrbit.rotation.y += delta * 0.24;
       }
+      if (vcaosGroup.visible) {
+        vcaosBeaconRing.rotation.y += delta * 0.22;
+        for (let i = 0; i < vcaosWindows.length; i++) {
+          const w = vcaosWindows[i];
+          const baseY = Number(w.userData.baseY ?? 3.3);
+          const phase = Number(w.userData.phase ?? 0);
+          w.position.y = baseY + Math.sin(elapsed * 1.4 + phase) * 0.14;
+        }
+      }
 
       // Update animated screen textures & fallback motion transforms
-      const activeIds = new Set<string>();
+      const activeIds = new Set<string>(vcaosWindowScreens.map((s) => s.id));
       for (const [id, entry] of renderedObjects.entries()) {
         activeIds.add(id);
         if (draggingObjectId === id && dragPosition) {

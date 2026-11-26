@@ -1,0 +1,31 @@
+{
+  "mode": "native",
+  "activeWorkspace": 1,
+  "tilingConfig": {
+    "layout": "bsp",
+    "gapsInner": 10,
+    "gapsOuter": 12,
+    "splitRatio": 0.52,
+    "borderWidth": 2,
+    "activeBorderColor": "#22d3ee",
+    "inactiveBorderColor": "#334155"
+  },
+  "vfsNodes": [
+    {
+      "path": "Config/vcaos/tiling.conf",
+      "content": "# VCAOS Hyprland Compositor Config (Live-Reloaded on Save)\nlayout = bsp\ngaps_in = 10\ngaps_out = 12\nsplit_ratio = 0.52\nborder_size = 2\ncol.active_border = #22d3ee\ncol.inactive_border = #334155",
+      "updatedAt": 1795687076845
+    },
+    {
+      "path": "Documents/VCAOS.md",
+      "content": "# VCAOS // YukiOS Multi-Environment Platform\n\nShared-state desktop switching across 6 desktop shells without losing active windows:\n- Hyprland BSP (Alt+1..9 workspaces, real BSP/Master-Stack engine, live tiling.conf)\n- macOS Shell (Menu Bar, Launchpad, Control Center, Dock)\n- Yuki Native, Windows 11, ChromeOS Shelf, and VCA Deck\n\nQuick CLI (`hyprctl`):\n  hyprctl dispatch workspace 2\n  hyprctl keyword layout master-stack\n  hyprctl keyword gaps_in 14\n  hyprctl dispatch mode macos",
+      "updatedAt": 1795687076845
+    },
+    {
+      "path": "Desktop/AGENT_BRIDGE.txt",
+      "content": "VISUAL AGENT PLATFORM BRIDGE: ACTIVE\nDouble-click any agent inside Visual Agents Studio to open its dedicated VCAOS runtime window.\nUse 3D Bridge to focus agents or activate the \"vcaos-nexus\" 3D environment biome.",
+      "updatedAt": 1795687076845
+    }
+  ],
+  "updatedAt": 1795687109592
+}

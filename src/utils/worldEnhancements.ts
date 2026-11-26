@@ -17,6 +17,7 @@ export const ENVIRONMENT_THEME_OPTIONS: Array<{
   { id: 'command-center', label: 'Command Center', subtitle: 'Obsidian titanium deck & cyan shafts', tier: 'core' },
   { id: 'aether-district', label: 'Aether District', subtitle: 'Campus skyline & illuminated plazas', tier: 'core' },
   { id: 'cyber-metropolis', label: 'Cyber Metropolis', subtitle: 'Wet mirror asphalt & neon skyscrapers', tier: 'hyper' },
+  { id: 'vcaos-nexus', label: 'VCAOS Matrix (YukiOS)', subtitle: 'BSP multi-DE holo rigs & floating OS windows', tier: 'hyper' },
   { id: 'orbital-station', label: 'Orbital Station', subtitle: 'Zero-G ring deck & docked solar arrays', tier: 'hyper' },
   { id: 'alpine-observatory', label: 'Alpine Observatory', subtitle: 'Snow peaks, aurora sky & warm beacons', tier: 'hyper' },
   { id: 'bioluminescent-canyon', label: 'Bio-Lum Canyon', subtitle: 'Crystal gorges & drifting spores', tier: 'hyper' },
@@ -184,6 +185,21 @@ export function getDefaultSkyboxForTheme(theme: EnvironmentTheme, timeOfDayHours
   }
   if (theme === 'tech-office') {
     return { enabled: true, preset: 'obsidian-studio', ...SKYBOX_PRESETS['obsidian-studio'] };
+  }
+  if (theme === 'vcaos-nexus') {
+    return {
+      enabled: true,
+      preset: 'cyber-neon-rain',
+      ...SKYBOX_PRESETS['cyber-neon-rain'],
+      zenithColor: '#050816',
+      horizonColor: '#1e2b58',
+      nadirColor: '#03060f',
+      sunColor: '#38bdf8',
+      nebulaHue: 0.62,
+      cloudCoverage: 0.16,
+      starDensity: 0.72,
+      auroraIntensity: 0.56,
+    };
   }
   return { enabled: true, preset: 'aether-twilight', ...SKYBOX_PRESETS['aether-twilight'], cloudCoverage: 0.22 };
 }

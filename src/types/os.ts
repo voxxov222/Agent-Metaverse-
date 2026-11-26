@@ -8,7 +8,8 @@ export type EnvironmentTheme =
   | 'orbital-station'
   | 'alpine-observatory'
   | 'cyber-metropolis'
-  | 'bioluminescent-canyon';
+  | 'bioluminescent-canyon'
+  | 'vcaos-nexus';
 
 export type SkyboxPresetId =
   | 'theme-auto'
@@ -57,7 +58,9 @@ export type WorkspacePanel =
   | 'security'
   | 'prototype'
   | 'world'
-  | 'jarvis';
+  | 'jarvis'
+  | 'live-voice'
+  | 'vcaos';
 
 export type NeuralRegionId =
   | 'reasoning-cortex'
