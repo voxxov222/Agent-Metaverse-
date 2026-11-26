@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 import type {
   AgentProfile,
   CameraMode,
@@ -22,6 +24,7 @@ import { createEnvironmentController, type PrototypeKind } from '../scene/enviro
 import { createSkyboxController } from '../scene/skyboxCreator';
 import { WorldPhysicsEngine } from '../scene/worldPhysics';
 import { getDefaultSkyboxForTheme } from '../utils/worldEnhancements';
+import type { ZimTrackingFrame } from '../utils/zimHandTracker';
 import { createHalo3DController } from '../../packages/halo/halo3d';
 import type {
   HaloFormFactor,
@@ -80,6 +83,7 @@ interface CommandViewport3DProps {
   runningTasksCount: number;
   jarvisHologram?: JarvisHologramConfig;
   onClickHaloPanel?: (moduleId: HaloModuleId, panelId: string) => void;
+  onRegisterHandDriver?: (driver: ((frame: ZimTrackingFrame) => void) | null) => void;
 }
 
 const _desiredCamPos = new THREE.Vector3();
@@ -89,6 +93,7 @@ const _right = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _planeHit = new THREE.Vector3();
+const _camOffset = new THREE.Vector3();
 
 export function CommandViewport3D(props: CommandViewport3DProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
@@ -168,14 +173,35 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
 
     const maxAniso = renderer.capabilities.getMaxAnisotropy();
     const textures = createProceduralTextures(maxAniso);
+
+    // Studio RoomEnvironment IBL reflections (vital for brushed metals, clearcoat, glass across GPU & SwiftShader)
+    const studioPmrem = new THREE.PMREMGenerator(renderer);
+    const roomEnvScene = new RoomEnvironment();
+    const studioEnvTex = studioPmrem.fromScene(roomEnvScene, 0.04).texture;
+    roomEnvScene.dispose();
+    scene.environment = studioEnvTex;
+    scene.environmentIntensity = 0.85;
+
+    // Studio Softbox Area Lights (GPU only)
+    const rectLights: THREE.RectAreaLight[] = [];
+    if (!isSoftwareGl) {
+      RectAreaLightUniformsLib.init();
+      const overheadSoftbox = new THREE.RectAreaLight(0xbae6fd, 3.2, 8.5, 4.5);
+      overheadSoftbox.position.set(0, 8.2, 1.5);
+      overheadSoftbox.lookAt(0, 0, 0);
+      const sideSoftbox = new THREE.RectAreaLight(0xfff1d6, 2.1, 6, 3.5);
+      sideSoftbox.position.set(-8, 5.2, -2);
+      sideSoftbox.lookAt(0, 1.4, -2);
+      scene.add(overheadSoftbox, sideSoftbox);
+      rectLights.push(overheadSoftbox, sideSoftbox);
+    }
+
     const skyboxCtrl = createSkyboxController();
     scene.add(skyboxCtrl.mesh);
 
     const envCtrl = createEnvironmentController(
       scene,
-      textures.floorAlbedo,
-      textures.floorBump,
-      textures.floorRoughness,
+      textures,
       maxAniso,
       isSoftwareGl,
     );
@@ -253,6 +279,15 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       const effectiveSky = skybox.enabled ? skybox : getDefaultSkyboxForTheme(theme, tod);
       skyboxCtrl.mesh.visible = true;
       skyboxCtrl.applyConfig(effectiveSky, renderer, scene, isSoftwareGl);
+      const isIndoor =
+        theme === 'command-center' ||
+        theme === 'tech-office' ||
+        theme === 'neural-chamber' ||
+        theme === 'holo-ops';
+      if (isIndoor && (!skybox.enabled || skybox.preset === 'theme-auto')) {
+        scene.environment = studioEnvTex;
+        scene.environmentIntensity = Math.max(0.72, effectiveSky.envIntensity);
+      }
       envCtrl.applyTheme(theme, weather, tod, true);
     }
 
@@ -525,6 +560,128 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
     window.addEventListener('pointerup', finishDragOrClick);
     window.addEventListener('pointercancel', finishDragOrClick);
 
+    // ZIM-Cam Spatial Hand Gesture Driver (pinch-to-grab, move, drop, click, two-hand zoom/rotate)
+    let handGrabActive = false;
+    const applyHandGesture = (frame: ZimTrackingFrame) => {
+      if (!frame.cursor.visible && !handGrabActive) return;
+
+      const rect = renderer.domElement.getBoundingClientRect();
+      const clientX = frame.cursor.x * window.innerWidth;
+      const clientY = frame.cursor.y * window.innerHeight;
+      pointer.x = ((clientX - rect.left) / Math.max(1, rect.width)) * 2 - 1;
+      pointer.y = -((clientY - rect.top) / Math.max(1, rect.height)) * 2 + 1;
+
+      // Two-hand pinch -> camera dolly zoom + held-object rotation or camera azimuth
+      if (frame.bothPinching) {
+        if (Math.abs(frame.twoHandZoomDelta) > 0.001) {
+          transitionActive = false;
+          _camOffset.copy(camera.position).sub(controls.target);
+          const curDist = _camOffset.length();
+          const nextDist = Math.max(
+            controls.minDistance,
+            Math.min(controls.maxDistance, curDist * (1 - frame.twoHandZoomDelta * 1.9)),
+          );
+          _camOffset.setLength(nextDist);
+          camera.position.copy(controls.target).add(_camOffset);
+        }
+        if (Math.abs(frame.twoHandAngleDeltaDeg) > 0.05) {
+          if (activeDragId && handGrabActive) {
+            activeDragRotY += THREE.MathUtils.degToRad(frame.twoHandAngleDeltaDeg * 1.6);
+            worldPhysics.setDragTarget(
+              activeDragId,
+              activeDragPos[0],
+              activeDragPos[1],
+              activeDragPos[2],
+              activeDragRotY,
+            );
+            envCtrl.setDraggingObject(activeDragId, activeDragPos, activeDragRotY);
+          } else {
+            transitionActive = false;
+            _camOffset.copy(camera.position).sub(controls.target);
+            const rotRad = THREE.MathUtils.degToRad(frame.twoHandAngleDeltaDeg * 0.75);
+            _camOffset.applyAxisAngle(_up, rotRad);
+            camera.position.copy(controls.target).add(_camOffset);
+          }
+        }
+        return;
+      }
+
+      if (frame.cursor.phase === 'down') {
+        raycaster.setFromCamera(pointer, camera);
+        const objHits = raycaster.intersectObjects(envCtrl.worldObjectInteractables, false);
+        if (objHits.length > 0) {
+          const objId = objHits[0].object.userData.objectId as string | undefined;
+          if (objId) {
+            const planeOk = raycaster.ray.intersectPlane(_groundPlane, _planeHit);
+            handGrabActive = true;
+            beginDragObject(objId, planeOk ? _planeHit.clone() : undefined);
+          }
+        }
+      } else if (frame.cursor.pinching && handGrabActive && activeDragId) {
+        raycaster.setFromCamera(pointer, camera);
+        if (raycaster.ray.intersectPlane(_groundPlane, _planeHit)) {
+          let nx = _planeHit.x + dragOffset.x;
+          let nz = _planeHit.z + dragOffset.z;
+          if (propsRef.current.gridSnap) {
+            nx = Math.round(nx * 2) / 2;
+            nz = Math.round(nz * 2) / 2;
+          }
+          nx = Math.max(-36, Math.min(36, Number(nx.toFixed(2))));
+          nz = Math.max(-36, Math.min(36, Number(nz.toFixed(2))));
+          const supportY = worldPhysics.getBodyTopY(nx, nz, activeDragId);
+          const ny = Number((supportY + 0.42).toFixed(2));
+          activeDragPos = [nx, ny, nz];
+          worldPhysics.setDragTarget(activeDragId, nx, ny, nz, activeDragRotY);
+          envCtrl.setDraggingObject(activeDragId, activeDragPos, activeDragRotY);
+        }
+      } else if (frame.cursor.phase === 'up' || frame.cursor.phase === 'tap') {
+        if (handGrabActive && activeDragId) {
+          const finishedId = activeDragId;
+          const finalPos = activeDragPos;
+          const finalRot = activeDragRotY;
+          activeDragId = null;
+          handGrabActive = false;
+          controls.enabled = true;
+          renderer.domElement.style.cursor = 'default';
+          worldPhysics.endDrag(finishedId);
+          envCtrl.setDraggingObject(null);
+          propsRef.current.onHoldStateChange?.(null);
+          propsRef.current.onMoveWorldObject?.(finishedId, finalPos, finalRot);
+        } else if (frame.cursor.phase === 'tap') {
+          // Dispatch tap onto UI element above WebGL if targeted, otherwise raycast 3D entities
+          const domHit = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+          if (domHit && domHit !== renderer.domElement && frame.replaceCursor) {
+            const btn = domHit.closest('button, a, select, input') as HTMLElement | null;
+            if (btn) {
+              btn.click();
+              return;
+            }
+          }
+          raycaster.setFromCamera(pointer, camera);
+          const targets: THREE.Object3D[] = [
+            ...envCtrl.worldObjectInteractables,
+            ...neuralCore.interactables,
+            ...halo3d.interactables,
+          ];
+          agentRigs.forEach((rig) => targets.push(rig.clickProxy));
+          const hits = raycaster.intersectObjects(targets, false);
+          if (hits.length > 0) {
+            const data = hits[0].object.userData;
+            if (data.kind === 'world-object' && data.objectId) {
+              propsRef.current.onSelectWorldObject?.(data.objectId);
+            } else if (data.kind === 'agent' && data.agentId) {
+              propsRef.current.onSelectAgent(data.agentId);
+            } else if (data.kind === 'neural-region' && data.regionId) {
+              propsRef.current.onSelectRegion(data.regionId);
+            } else if (data.kind === 'halo-panel' && data.moduleId) {
+              propsRef.current.onClickHaloPanel?.(data.moduleId, data.panelId);
+            }
+          }
+        }
+      }
+    };
+    propsRef.current.onRegisterHandDriver?.(applyHandGesture);
+
     const onResize = () => {
       const w = container.clientWidth || window.innerWidth;
       const h = container.clientHeight || window.innerHeight;
@@ -718,12 +875,16 @@ export function CommandViewport3D(props: CommandViewport3DProps) {
       window.removeEventListener('pointerup', finishDragOrClick);
       window.removeEventListener('pointercancel', finishDragOrClick);
 
+      propsRef.current.onRegisterHandDriver?.(null);
       controls.dispose();
       neuralCore.dispose();
       halo3d.dispose();
       skyboxCtrl.dispose();
       envCtrl.dispose();
       textures.dispose();
+      studioEnvTex.dispose();
+      studioPmrem.dispose();
+      rectLights.forEach((l) => l.dispose());
       agentRigs.forEach((rig) => rig.dispose());
       playerRigs.forEach((rig) => rig.dispose());
       renderer.dispose();

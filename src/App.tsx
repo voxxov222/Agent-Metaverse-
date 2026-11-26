@@ -12,6 +12,8 @@ import { WorldRoadmapPanel } from './components/panels/WorldRoadmapPanel';
 import { JarvisCommandDeck } from './components/panels/JarvisCommandDeck';
 import { JarvisOrbHud } from './components/JarvisOrbHud';
 import { MayaAdminWorkstation } from './components/workstation/MayaAdminWorkstation';
+import { ZimHandCamOverlay } from './components/ZimHandCamOverlay';
+import type { ZimTrackingFrame } from './utils/zimHandTracker';
 import type { PrototypeKind } from './scene/environments';
 import {
   applyKernelPayloadToStore,
@@ -104,6 +106,8 @@ export default function App() {
   const [selectedRegionId, setSelectedRegionId] = useState<NeuralRegionId>('reasoning-cortex');
   const [activePanel, setActivePanel] = useState<WorkspacePanel>(null);
   const [workstationOpen, setWorkstationOpen] = useState(false);
+  const [handCamOpen, setHandCamOpen] = useState(false);
+  const handDriverRef = useRef<((frame: ZimTrackingFrame) => void) | null>(null);
   const [dockCollapsed, setDockCollapsed] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [latestPulse, setLatestPulse] = useState<PulseSignal | null>(null);
@@ -1024,6 +1028,9 @@ export default function App() {
         onClickHaloPanel={(moduleId) => {
           haloStore.setState({ isOpen: true, activeModule: moduleId, glitchPulseAt: Date.now() });
         }}
+        onRegisterHandDriver={(driver) => {
+          handDriverRef.current = driver;
+        }}
       />
 
       {/* Top Navigation Bar (Strict 3-Zone Contract, solid/rgba surface — no backdrop-blur over WebGL) */}
@@ -1576,6 +1583,19 @@ export default function App() {
 
               <button
                 type="button"
+                aria-label="Toggle ZIM-Cam Hand Tracking"
+                onClick={() => setHandCamOpen((prev) => !prev)}
+                className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
+                  handCamOpen
+                    ? 'bg-emerald-500/20 border-emerald-400/60 text-emerald-200'
+                    : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                }`}
+              >
+                Hand Cam
+              </button>
+
+              <button
+                type="button"
                 onClick={() => haloStore.setState((prev) => ({ ...prev, wristOpen: !prev.wristOpen }))}
                 className={`px-2 py-1 rounded border text-[11px] whitespace-nowrap cursor-pointer ${
                   haloWristOpen
@@ -1694,6 +1714,13 @@ export default function App() {
       />
       <WristHud />
       <CommandPaletteModal />
+
+      {/* ZIM-Cam Hand Tracking & CamMotion Spatial Controller */}
+      <ZimHandCamOverlay
+        open={handCamOpen}
+        onClose={() => setHandCamOpen(false)}
+        onFrame={(frame) => handDriverRef.current?.(frame)}
+      />
     </div>
   );
 }
